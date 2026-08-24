@@ -4,6 +4,8 @@ Omasnake, in a browser. Levels with closing obstacle layouts, a snake eater
 that hunts your tail, and a Party Mode that analyses the music it is playing
 and paints the board with it.
 
+Play it at **[oh-no-more-snake.com](https://oh-no-more-snake.com)**.
+
 This is a port of [omasnake](https://github.com/jhgundersen/omasnake), the
 standalone Qt 6 game for Omarchy — same rules, same numbers, same jokes, no
 Qt. It is framework-free HTML, Canvas and JavaScript, deployed on Cloudflare
@@ -118,13 +120,16 @@ run them.
 
 ## Deployment
 
+Production is <https://oh-no-more-snake.com>, with `www` served the same way.
+
 ```sh
 npx wrangler login
 npm run deploy
 ```
 
 There is no Worker code and no API — `wrangler.jsonc` deploys `public/` as
-static assets. Add a `main` if a scoreboard ever needs a server side.
+static assets and attaches both custom domains. Add a `main` if a scoreboard
+ever needs a server side.
 
 ## License
 

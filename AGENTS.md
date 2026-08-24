@@ -2,6 +2,8 @@
 
 ## Project
 
+Production is `https://oh-no-more-snake.com`.
+
 Oh No! More Snake is a framework-free browser port of
 [omasnake](https://github.com/jhgundersen/omasnake), the standalone Qt 6 Snake
 game for Omarchy. Static game files live in `public/`; there is no Worker code,
@@ -35,7 +37,8 @@ right and this one has a bug — with the deliberate exceptions listed under
   nothing has to hide them.
 - `test/game.test.js` — a port of `tests/tst_omasnake.cpp`, extended.
 - `public/_headers` — cache lifetimes for what Workers Assets serves.
-- `wrangler.jsonc` — an assets-only Worker. No bindings, no secrets.
+- `wrangler.jsonc` — an assets-only Worker, with the apex and `www` custom
+  domains. No bindings, no secrets.
 
 ## Working conventions
 

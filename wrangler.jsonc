@@ -2,7 +2,17 @@
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "oh-no-more-snake",
 	"compatibility_date": "2026-08-24",
-	"workers_dev": true,
+	"workers_dev": false,
+	"routes": [
+		{
+			"pattern": "oh-no-more-snake.com",
+			"custom_domain": true
+		},
+		{
+			"pattern": "www.oh-no-more-snake.com",
+			"custom_domain": true
+		}
+	],
 
 	// There is no Worker code and no API. The game is the whole product, so
 	// this deploys `public/` and nothing else. Add a "main" here if a
