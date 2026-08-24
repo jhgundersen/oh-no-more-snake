@@ -190,6 +190,7 @@ test("party events unlock gradually", () => {
 test("solid borders end the run and wrapping borders do not", () => {
   const game = fresh()
   game.endlessMode = true
+  game.wallsWrap = false // Explicit: the stored default is wrapping.
   game.reset()
   game.snake = [{ x: COLUMNS - 1, y: 5 }, { x: COLUMNS - 2, y: 5 }, { x: COLUMNS - 3, y: 5 }]
   game.direction = { x: 1, y: 0 }
@@ -261,6 +262,21 @@ test("endless mode holds one speed and levels quicken by cycle", () => {
   assert.equal(game.tickInterval, 126)
   game.endlessMode = true
   assert.equal(game.tickInterval, 140)
+})
+
+test("borders wrap until told otherwise", () => {
+  const memory = new Map()
+  const store = {
+    getItem: key => (memory.has(key) ? memory.get(key) : null),
+    setItem: (key, value) => memory.set(key, String(value))
+  }
+  const first = new Game({ store })
+  assert.ok(first.wallsWrap, "a first run wraps")
+
+  first.toggleWallsWrap()
+  assert.ok(!first.wallsWrap)
+  // A stored "false" is a decision, and outlives the default.
+  assert.ok(!new Game({ store }).wallsWrap, "solid borders survive a reload")
 })
 
 test("best scores are kept apart per mode and survive a reload", () => {

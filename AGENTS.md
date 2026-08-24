@@ -102,6 +102,10 @@ Each of these is a deliberate answer to something a browser cannot do. Do not
   were tuned per buffer.
 - **The rhythm timer is gone.** `MusicController::beat` had no listener in the
   QML, so it was not ported.
+- **Borders wrap by default.** The desktop version starts solid. A page is
+  usually somebody's first game, and a first game that ends in three seconds
+  against a wall is a worse introduction than one that does not. A stored
+  `false` is still a decision and outlives the default; only its absence wraps.
 - **Escape leaves fullscreen, or pauses.** There is no window to close. Real
   fullscreen is the browser's to exit; the CSS stand-in has to be told.
 - **Fullscreen is `v`, labelled "View".** Bolding the first letter of

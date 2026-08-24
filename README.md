@@ -28,7 +28,7 @@ to be served — opening `public/index.html` from the filesystem will not work.
 - `p` — toggle Party Mode
 - `n` — switch to the next soundtrack
 - `m` — switch between Levels and Endless
-- `b` — switch between solid and wrapping borders
+- `b` — switch between wrapping and solid borders
 - `f` — cycle the food skin
 - `r` — start a fresh run
 - `t` — cycle the theme
@@ -52,6 +52,8 @@ of 55 ms. From level 4, a snake eater hunts the tail: each bite removes one
 block and one point, and steering the head into it earns two points and drives
 it away for a while. Endless is the classic open board at one speed.
 
+Borders wrap until you press `b`, which is the one rule here that differs from
+the desktop version — a page somebody just opened is usually their first game.
 Moving into the cell your own tail is leaving is legal, because the tail leaves
 it during the same tick. In Party Mode that is worth a point.
 

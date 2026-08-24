@@ -839,7 +839,11 @@ export class Game {
     this.bestEndless = number("omasnake/scores/endless", 0)
     this.totalSeconds = number("omasnake/play/totalSeconds", 0)
     this.foodStyleIndex = number("omasnake/appearance/foodStyle", 0)
-    this.wallsWrap = this.store.getItem("omasnake/play/wrapBorders") === "true"
+    // Wrapping is the friendlier first run, and unlike the desktop version
+    // this one is usually somebody's first. A stored "false" is still a
+    // decision, so only the absence of one becomes a wrap.
+    const wrap = this.store.getItem("omasnake/play/wrapBorders")
+    this.wallsWrap = wrap === null ? true : wrap === "true"
   }
 
   saveSettings() {
