@@ -32,9 +32,16 @@ to be served — opening `public/index.html` from the filesystem will not work.
 - `f` — cycle the food skin
 - `r` — start a fresh run
 - `t` — cycle the theme
-- Escape — pause
+- `v` — fullscreen
+- Escape — leave fullscreen, or pause
 
 On a touchscreen, drag on the board to steer and tap it to cycle the food skin.
+
+`?full` opens the page with the board covering the viewport and nothing else on
+screen — for kiosks, second monitors and screenshots. It is the CSS half of
+fullscreen rather than the Fullscreen API, which refuses any request that did
+not come from a gesture and so can never be driven from a URL. `?full=0` is an
+explicit no, so the parameter can be templated in as a variable.
 
 ## How it plays
 

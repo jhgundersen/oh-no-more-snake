@@ -394,6 +394,7 @@ addEventListener("keydown", event => {
       case "p": music.toggle(); break
       case "n": music.nextTrack(); break
       case "t": cycleTheme(); break
+      case "v": toggleFullscreen(); break
       default: return
     }
   }
@@ -401,9 +402,14 @@ addEventListener("keydown", event => {
   updateHud()
 })
 
-// Escape has nothing to close in a browser, so it does the useful half of what
-// it does on the desktop: it stops the game rather than the page.
+// Escape has no window to close here. Real fullscreen is the browser's to
+// exit, but the CSS stand-in has to be told; failing that, Escape does the
+// useful half of what it does on the desktop and stops the game.
 function pauseIfRunning() {
+  if (stage.classList.contains("faux")) {
+    setFaux(false)
+    return
+  }
   if (game.running && !game.gameOver) game.togglePause()
 }
 
@@ -459,7 +465,11 @@ const buttons = [
   { id: "next", letter: "N", rest: () => `ext: ${music.trackName}`,
     name: () => `Next soundtrack, currently ${music.trackName}`, act: () => music.nextTrack() },
   { id: "theme", letter: "T", rest: () => `heme: ${theme.name}`,
-    name: () => `Theme: ${theme.name}`, act: () => cycleTheme() }
+    name: () => `Theme: ${theme.name}`, act: () => cycleTheme() },
+  // Not "Fullscreen", because bolding its first letter would claim `f`, which
+  // has cycled the food skin since the desktop version.
+  { id: "view", letter: "V", rest: () => `iew: ${isFullscreen() ? "Fullscreen" : "Windowed"}`,
+    name: () => `View: ${isFullscreen() ? "Fullscreen" : "Windowed"}`, act: () => toggleFullscreen() }
 ]
 
 for (const button of buttons) {
@@ -467,6 +477,62 @@ for (const button of buttons) {
     button.act()
     updateHud()
   })
+}
+
+// --- fullscreen --------------------------------------------------------------
+
+// Fullscreening the stage lets the browser hide its siblings; nothing here
+// hides the title and the blurb, they are simply outside the subtree drawn.
+const stage = el("stage")
+
+const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null
+const isFullscreen = () => fullscreenElement() === stage || stage.classList.contains("faux")
+
+// iOS Safari has no requestFullscreen at all, and a framed page may be refused,
+// so the CSS version stands in rather than leaving a button that does nothing.
+function setFaux(on) {
+  stage.classList.toggle("faux", on)
+  afterFullscreen()
+}
+
+function toggleFullscreen() {
+  if (isFullscreen()) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen
+    if (fullscreenElement() && exit) exit.call(document)
+    else setFaux(false)
+    return
+  }
+  const request = stage.requestFullscreen || stage.webkitRequestFullscreen
+  if (!request) return setFaux(true)
+  let asked
+  try {
+    asked = request.call(stage)
+  } catch {
+    return setFaux(true)
+  }
+  asked?.catch?.(() => setFaux(true))
+}
+
+function afterFullscreen() {
+  resize()
+  updateHud()
+}
+
+document.addEventListener("fullscreenchange", afterFullscreen)
+document.addEventListener("webkitfullscreenchange", afterFullscreen)
+
+// Accepts ?full, ?full=1 and ?fullscreen; ?full=0, ?full=false and ?full=off
+// are an explicit no, so the parameter can be templated in as a variable
+// without the caller having to add and remove it. It can only ever reach the
+// CSS half: the Fullscreen API refuses any request that did not come from a
+// gesture, which a URL never is. For kiosks, second monitors and screenshots.
+function fullParameter() {
+  const query = new URLSearchParams(location.search)
+  const value = query.has("full") ? query.get("full")
+    : query.has("fullscreen") ? query.get("fullscreen")
+    : null
+  if (value === null) return false
+  return value !== "0" && value !== "false" && value !== "off"
 }
 
 function cycleTheme() {
@@ -537,15 +603,29 @@ function announce(text) {
 let cell = 20
 
 function resize() {
-  // #app is measured rather than the board's own frame: the frame is capped to
-  // --board-w, which this function sets, and measuring it would let the board
-  // shrink but never grow again.
-  const available = el("app").getBoundingClientRect()
-  // Whole pixels per cell, so a 22-wide board never lands on a half pixel and
-  // draws the snake one shade blurry.
-  const byWidth = Math.floor(available.width / COLUMNS)
-  const byHeight = Math.floor((innerHeight - el("head").offsetHeight - el("controls").offsetHeight - 120) / ROWS)
-  cell = Math.max(12, Math.min(34, Math.min(byWidth, byHeight)))
+  // The frame is a flex child that already holds exactly the room the rest of
+  // the column left over, and the canvas inside it is absolutely positioned,
+  // so measuring the frame asks the layout what is left instead of adding up
+  // siblings. Fullscreen needs no special case for the same reason.
+  const frame = el("board-frame")
+  // A big monitor does not want a board the size of a wall — 40 keeps it
+  // inside the 900px column the rest of the page lives in. A screen given over
+  // entirely to the game may as well use it.
+  const largest = isFullscreen() ? 64 : 40
+
+  // Only the head and the meters follow --board-w, and neither changes height
+  // with width, so one pass is normally the answer. The second is there for
+  // the case where a long track name wraps the header.
+  let previous = -1
+  for (let pass = 0; pass < 2 && cell !== previous; ++pass) {
+    previous = cell
+    // Whole pixels per cell, so a 22-wide board never lands on a half pixel
+    // and draws the snake one shade blurry.
+    const byWidth = Math.floor(frame.clientWidth / COLUMNS)
+    const byHeight = Math.floor(frame.clientHeight / ROWS)
+    cell = Math.max(12, Math.min(largest, Math.min(byWidth, byHeight)))
+    document.documentElement.style.setProperty("--board-w", `${COLUMNS * cell}px`)
+  }
 
   const { width, height } = boardSize(cell)
   const ratio = Math.min(3, devicePixelRatio || 1)
@@ -554,7 +634,6 @@ function resize() {
   canvas.style.width = `${width}px`
   canvas.style.height = `${height}px`
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-  document.documentElement.style.setProperty("--board-w", `${width}px`)
 
   splashCanvas.width = Math.round(innerWidth * ratio)
   splashCanvas.height = Math.round(innerHeight * ratio)
@@ -654,6 +733,7 @@ addEventListener("visibilitychange", () => {
 })
 
 applyTheme()
+if (fullParameter()) setFaux(true)
 resize()
 detectNerdFont().then(resize)
 requestAnimationFrame(now => {

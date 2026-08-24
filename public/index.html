@@ -49,13 +49,13 @@
 		}
 
 		body {
-			min-height: 100svh;
+			height: 100svh;
 			display: flex;
 			flex-direction: column;
 			align-items: center;
 			justify-content: center;
 			gap: 12px;
-			padding: 28px 16px;
+			padding: 20px 16px;
 			background: var(--bg);
 			color: var(--fg);
 			font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -66,21 +66,76 @@
 			-webkit-text-size-adjust: 100%;
 		}
 
-		/* #app spans whatever the viewport allows and is measured to pick the
-		   cell size. Its children are the ones capped to the board's width, so
-		   the measurement never depends on the answer it produces. */
-		#app {
+		h1 {
+			margin: 0;
+			font-size: 22px;
+			font-weight: 700;
+			letter-spacing: 0.06em;
+			text-align: center;
+		}
+
+		.sub {
+			margin: 0;
+			max-width: 56ch;
+			font-size: 12px;
+			line-height: 1.7;
+			color: var(--muted);
+			text-align: center;
+			text-wrap: balance;
+		}
+
+		.sub kbd {
+			font: inherit;
+			color: var(--fg);
+		}
+
+		/* Everything inside #stage is the game; everything outside it is the
+		   page around the game. That is the whole of the fullscreen feature —
+		   the browser renders only the fullscreen element's subtree, so the
+		   title and the blurb go without a single rule hiding them. */
+		#stage {
 			width: 100%;
 			max-width: 900px;
+			min-height: 0;
+			flex: 1 1 auto;
 			display: flex;
 			flex-direction: column;
 			align-items: center;
 			gap: 12px;
 		}
 
-		#app > * {
+		/* The two strips that read as part of the board are aligned to it. The
+		   board's own frame is not, because it is the thing being measured to
+		   decide that width — and neither are the controls, because where they
+		   wrap decides how much height is left for the board, and a width that
+		   depends on the board would make that circular. */
+		#head,
+		#meters {
 			width: 100%;
 			max-width: var(--board-w);
+		}
+
+		#controls {
+			width: 100%;
+		}
+
+		/* The fullscreen element gets a transparent backdrop by default, which
+		   in practice means black — a shade no palette here is using. */
+		#stage:fullscreen,
+		#stage.faux {
+			background: var(--bg);
+			padding: 16px;
+			max-width: none;
+		}
+
+		/* iOS Safari has no Element.requestFullscreen at all, and a URL
+		   parameter can never drive the real one, so the same look is
+		   available as plain CSS. */
+		#stage.faux {
+			position: fixed;
+			inset: 0;
+			z-index: 50;
+			width: auto;
 		}
 
 		#head {
@@ -176,12 +231,23 @@
 			display: none !important;
 		}
 
+		/* The frame takes whatever height the rest of the column leaves, and the
+		   canvas is centred inside it without contributing any height of its
+		   own. That is what lets resize() ask "how much room is left?" instead
+		   of adding up its siblings — and it is why fullscreen needs no special
+		   arithmetic. */
 		#board-frame {
-			display: flex;
-			justify-content: center;
+			position: relative;
+			flex: 1 1 auto;
+			min-height: 0;
+			width: 100%;
 		}
 
 		#board {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
 			display: block;
 			touch-action: none;
 			cursor: pointer;
@@ -238,19 +304,6 @@
 			font-weight: 700;
 		}
 
-		#hint {
-			margin: 0;
-			text-align: center;
-			font-size: 11px;
-			line-height: 1.7;
-			color: var(--muted);
-		}
-
-		#hint kbd {
-			font: inherit;
-			color: var(--fg);
-		}
-
 		/* Full-page, above everything, and never in the way of a click. */
 		#splash {
 			position: fixed;
@@ -270,13 +323,16 @@
 			white-space: nowrap;
 		}
 
-		@media (max-height: 620px) {
+		/* On a short screen the blurb is the first thing to go: the board is
+		   what the page is for. */
+		@media (max-height: 640px) {
 			body {
-				padding: 10px;
+				padding: 8px;
 				gap: 8px;
 			}
 
-			#hint {
+			h1,
+			.sub {
 				display: none;
 			}
 		}
@@ -284,7 +340,18 @@
 </head>
 
 <body>
-	<main id="app">
+
+	<h1>Oh No! More Snake</h1>
+
+	<p class="sub">
+		Levels that close in on you, a snake eater that hunts your tail, and a
+		Party Mode that listens to the music it is playing. Arrows,
+		<kbd>hjkl</kbd> or <kbd>wasd</kbd> steer, <kbd>space</kbd> pauses,
+		<kbd>r</kbd> starts over. Everything else is a button. Drop your own
+		audio files on the page to add them to the playlist.
+	</p>
+
+	<main id="stage">
 		<div id="head">
 			<div id="level">LEVEL 1</div>
 			<div id="score">SCORE 0</div>
@@ -311,25 +378,22 @@
 				<button type="button" id="party"></button>
 				<button type="button" id="next"></button>
 				<button type="button" id="theme"></button>
+				<button type="button" id="view"></button>
 			</div>
 		</div>
 
-		<p id="hint">
-			<kbd>arrows</kbd> <kbd>hjkl</kbd> <kbd>wasd</kbd> steer · <kbd>space</kbd> pause ·
-			<kbd>r</kbd> restart · <kbd>m</kbd>ode · <kbd>b</kbd>orders · <kbd>f</kbd>ood ·
-			<kbd>p</kbd>arty · <kbd>n</kbd>ext track · <kbd>t</kbd>heme<br>
-			Drop your own audio files on the page to add them to the playlist.
-		</p>
+		<!-- Inside the stage, or fullscreen would render neither: only the
+		     fullscreen element's own subtree is drawn. -->
+		<canvas id="splash" hidden></canvas>
+		<p id="status" class="sr-only" role="status" aria-live="polite"></p>
 	</main>
-
-	<canvas id="splash" hidden></canvas>
-	<p id="status" class="sr-only" role="status" aria-live="polite"></p>
 
 	<noscript>
 		<p>Oh No! More Snake needs JavaScript. It is one page of it, and no trackers.</p>
 	</noscript>
 
 	<script type="module" src="snake/web.js"></script>
+
 </body>
 
 </html>

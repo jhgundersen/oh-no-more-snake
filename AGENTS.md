@@ -29,6 +29,10 @@ right and this one has a bug — with the deliberate exceptions listed under
 - `public/snake/web.js` — input, timers, animation values, the HUD, and the
   render loop. The half of `Main.qml` that is not drawing.
 - `public/index.html` — the page, the CSS, and the only DOM the game has.
+  Everything inside `#stage` is the game; the title and the blurb outside it are
+  the page around the game. That division is the whole of the fullscreen
+  feature — the browser renders only the fullscreen element's subtree, so
+  nothing has to hide them.
 - `test/game.test.js` — a port of `tests/tst_omasnake.cpp`, extended.
 - `public/_headers` — cache lifetimes for what Workers Assets serves.
 - `wrangler.jsonc` — an assets-only Worker. No bindings, no secrets.
@@ -62,6 +66,10 @@ These come from the Qt version and hold here too.
   immediate repeats.
 - Preserve keyboard access: arrows, `hjkl` and `wasd` steer; Space pauses or
   restarts; `m`, `b`, `f`, `r`, `p` and `n` keep their documented actions.
+- The board is sized from the room its frame has left over, never by adding up
+  its siblings. Anything given `max-width: var(--board-w)` must not change
+  height with width, or the measurement becomes circular — which is why the
+  controls row spans the stage instead of the board.
 - Never hardcode a dark-only surface. Every palette in `Palette.js` must stay
   readable, and the six theme names are the only colours the game may use.
 - Buttons keep hover and active feedback and accessible names. Shortcut letters
@@ -94,7 +102,14 @@ Each of these is a deliberate answer to something a browser cannot do. Do not
   were tuned per buffer.
 - **The rhythm timer is gone.** `MusicController::beat` had no listener in the
   QML, so it was not ported.
-- **Escape pauses.** There is no window to close.
+- **Escape leaves fullscreen, or pauses.** There is no window to close. Real
+  fullscreen is the browser's to exit; the CSS stand-in has to be told.
+- **Fullscreen is `v`, labelled "View".** Bolding the first letter of
+  "Fullscreen" would claim `f`, which has cycled the food skin since the
+  desktop version. `?full` turns on the CSS half at load, for kiosks and
+  screenshots; the Fullscreen API cannot be reached from a URL.
+- **The splash canvas lives inside `#stage`.** A sibling would not be drawn in
+  fullscreen, where only the fullscreen element's subtree renders.
 - **A hidden tab pauses the game** and saves. Nobody is playing a tab they
   cannot see.
 - **Only the board is Canvas.** Scores, meters and buttons are DOM, so they
