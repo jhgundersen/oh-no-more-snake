@@ -1,0 +1,13 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "oh-no-more-snake",
+	"compatibility_date": "2026-08-24",
+	"workers_dev": true,
+
+	// There is no Worker code and no API. The game is the whole product, so
+	// this deploys `public/` and nothing else. Add a "main" here if a
+	// scoreboard ever needs a server side.
+	"assets": {
+		"directory": "./public"
+	}
+}

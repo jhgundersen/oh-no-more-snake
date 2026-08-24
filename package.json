@@ -1,0 +1,17 @@
+{
+  "name": "oh-no-more-snake",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Omasnake in a browser: levels, a snake eater, and a Party Mode that reads the music it is playing.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "serve": "python3 -m http.server --directory public 8787",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.js",
+    "check": "node --check public/snake/Game.js && node --check public/snake/Audio.js && node --check public/snake/Draw.js && node --check public/snake/Messages.js && node --check public/snake/Palette.js && node --check public/snake/web.js && npm test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.124.0"
+  }
+}

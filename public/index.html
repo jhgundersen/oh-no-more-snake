@@ -1,0 +1,335 @@
+<!doctype html>
+
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<title>Oh No! More Snake</title>
+	<meta name="description" content="Omasnake in a browser: levels, a snake eater, and a Party Mode that reads the music it is playing.">
+	<meta name="color-scheme" content="dark light">
+	<link rel="icon" href="snake/omasnake.svg" type="image/svg+xml">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+	<style>
+		:root {
+			/* Overwritten by web.js from the selected theme, so the page and the
+			   board always agree. These are the tokyo-night defaults, present so
+			   nothing flashes white before the first paint. */
+			--bg: #1a1b26;
+			--fg: #c0caf5;
+			--accent: #7aa2f7;
+			--muted: #565f89;
+			--selection: #33467c;
+			--play-area: #16161e;
+			--trough: #131420;
+			--combo-trough: #3b3f56;
+			--button-hover: #86aaf6;
+			--button-active: #61809c;
+			--button-border: #8fabf5;
+
+			/* The board is a whole number of pixels per cell, so its width is one
+			   of a handful of values rather than the viewport's. web.js sets this
+			   to whichever it picked, and the meters line up with the board
+			   instead of drifting a few pixels wider. */
+			--board-w: 440px;
+
+			color-scheme: dark;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		html,
+		body {
+			margin: 0;
+			padding: 0;
+		}
+
+		body {
+			min-height: 100svh;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 12px;
+			padding: 28px 16px;
+			background: var(--bg);
+			color: var(--fg);
+			font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+			font-size: 14px;
+			transition: background-color 160ms linear, color 160ms linear;
+			overflow: hidden;
+			touch-action: none;
+			-webkit-text-size-adjust: 100%;
+		}
+
+		/* #app spans whatever the viewport allows and is measured to pick the
+		   cell size. Its children are the ones capped to the board's width, so
+		   the measurement never depends on the answer it produces. */
+		#app {
+			width: 100%;
+			max-width: 900px;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 12px;
+		}
+
+		#app > * {
+			width: 100%;
+			max-width: var(--board-w);
+		}
+
+		#head {
+			display: flex;
+			align-items: baseline;
+			justify-content: space-between;
+			gap: 12px;
+		}
+
+		#level {
+			font-size: 22px;
+			font-weight: 700;
+			letter-spacing: 0.02em;
+		}
+
+		#score {
+			font-weight: 700;
+			color: var(--muted);
+		}
+
+		/* The meters occupy a fixed strip whether or not anything is in it, so
+		   turning Party Mode on does not shift the board up the page. */
+		#meters {
+			position: relative;
+			height: 18px;
+			transition: height 160ms ease;
+		}
+
+		body.party #meters {
+			height: 36px;
+		}
+
+		.bar {
+			position: absolute;
+			left: 0;
+			right: 0;
+			height: 5px;
+			border-radius: 3px;
+			overflow: hidden;
+		}
+
+		.bar > span {
+			display: block;
+			height: 100%;
+			border-radius: 3px;
+			background: var(--accent);
+		}
+
+		#level-progress {
+			top: 50%;
+			margin-top: -2.5px;
+			background: var(--trough);
+			transition: top 160ms ease, margin-top 160ms ease;
+		}
+
+		body.party #level-progress {
+			top: 2px;
+			margin-top: 0;
+		}
+
+		#level-progress > span {
+			transition: width 140ms linear;
+		}
+
+		#combo {
+			top: 29px;
+			background: var(--combo-trough);
+		}
+
+		#combo > span {
+			transition: width 50ms linear;
+		}
+
+		#combo-name {
+			position: absolute;
+			right: 0;
+			top: 8px;
+			font-size: 12px;
+			font-weight: 700;
+			color: var(--accent);
+		}
+
+		#elapsed {
+			position: absolute;
+			left: 0;
+			right: 0;
+			top: 1px;
+			text-align: center;
+			color: var(--muted);
+		}
+
+		[hidden] {
+			display: none !important;
+		}
+
+		#board-frame {
+			display: flex;
+			justify-content: center;
+		}
+
+		#board {
+			display: block;
+			touch-action: none;
+			cursor: pointer;
+		}
+
+		#controls {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 12px;
+		}
+
+		.row {
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: center;
+			gap: 12px;
+		}
+
+		button {
+			height: 38px;
+			padding: 0 14px;
+			border-radius: 10px;
+			border: 1px solid var(--button-border);
+			/* Accent is mandatory in an Omarchy theme. Using it directly avoids
+			   optional palette entries turning these black on a light theme. */
+			background: var(--accent);
+			color: var(--bg);
+			font-family: inherit;
+			font-size: 13px;
+			line-height: 1;
+			cursor: pointer;
+			transition: background-color 90ms linear;
+		}
+
+		button:hover {
+			background: var(--button-hover);
+		}
+
+		button:active {
+			background: var(--button-active);
+		}
+
+		button:focus-visible {
+			outline: 2px solid var(--fg);
+			outline-offset: 2px;
+		}
+
+		/* The shortcut is shown by bolding the letter and nothing else. The Qt
+		   build also recolours it to the foreground, which on a light theme puts
+		   dark text on an accent-coloured button and loses the letter — weight
+		   alone reads on every palette. */
+		button b {
+			font-weight: 700;
+		}
+
+		#hint {
+			margin: 0;
+			text-align: center;
+			font-size: 11px;
+			line-height: 1.7;
+			color: var(--muted);
+		}
+
+		#hint kbd {
+			font: inherit;
+			color: var(--fg);
+		}
+
+		/* Full-page, above everything, and never in the way of a click. */
+		#splash {
+			position: fixed;
+			inset: 0;
+			z-index: 100;
+			pointer-events: none;
+		}
+
+		.sr-only {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			margin: -1px;
+			padding: 0;
+			overflow: hidden;
+			clip-path: inset(50%);
+			white-space: nowrap;
+		}
+
+		@media (max-height: 620px) {
+			body {
+				padding: 10px;
+				gap: 8px;
+			}
+
+			#hint {
+				display: none;
+			}
+		}
+	</style>
+</head>
+
+<body>
+	<main id="app">
+		<div id="head">
+			<div id="level">LEVEL 1</div>
+			<div id="score">SCORE 0</div>
+		</div>
+
+		<div id="meters">
+			<div class="bar" id="level-progress"><span id="level-progress-fill"></span></div>
+			<div class="bar" id="combo" hidden><span id="combo-fill"></span></div>
+			<div id="combo-name" hidden></div>
+			<div id="elapsed" hidden>00:00</div>
+		</div>
+
+		<div id="board-frame">
+			<canvas id="board" width="440" height="320" aria-label="Snake board"></canvas>
+		</div>
+
+		<div id="controls">
+			<div class="row">
+				<button type="button" id="mode"></button>
+				<button type="button" id="borders"></button>
+				<button type="button" id="food"></button>
+			</div>
+			<div class="row">
+				<button type="button" id="party"></button>
+				<button type="button" id="next"></button>
+				<button type="button" id="theme"></button>
+			</div>
+		</div>
+
+		<p id="hint">
+			<kbd>arrows</kbd> <kbd>hjkl</kbd> <kbd>wasd</kbd> steer · <kbd>space</kbd> pause ·
+			<kbd>r</kbd> restart · <kbd>m</kbd>ode · <kbd>b</kbd>orders · <kbd>f</kbd>ood ·
+			<kbd>p</kbd>arty · <kbd>n</kbd>ext track · <kbd>t</kbd>heme<br>
+			Drop your own audio files on the page to add them to the playlist.
+		</p>
+	</main>
+
+	<canvas id="splash" hidden></canvas>
+	<p id="status" class="sr-only" role="status" aria-live="polite"></p>
+
+	<noscript>
+		<p>Oh No! More Snake needs JavaScript. It is one page of it, and no trackers.</p>
+	</noscript>
+
+	<script type="module" src="snake/web.js"></script>
+</body>
+
+</html>

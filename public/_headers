@@ -1,0 +1,16 @@
+# Workers Assets reads this file instead of serving it. Its only job is to undo
+# the default `cache-control: public, max-age=0, must-revalidate` where that
+# default is wasteful.
+
+# 35 MB of soundtrack that never changes. There is no content hash in these
+# URLs, so this is a promise kept by hand: a replacement track gets a new
+# number, it does not overwrite an existing file.
+/snake/*.mp3
+  cache-control: public, max-age=31536000, immutable
+
+/snake/omasnake.svg
+  cache-control: public, max-age=604800
+
+# The JavaScript deliberately stays on the default. It is about 60 kB across
+# six unbundled modules, revalidation is a 304, and keeping it unhashed is what
+# lets the game run straight off a static directory with no build step.
