@@ -4,9 +4,10 @@
 // not drawing. The animation constants, easing curves and the order effects
 // fire in are all from there, because they are what the game feels like.
 
-import { COLUMNS, ROWS, Game } from "./Game.js"
+import { COLUMNS, ROWS, Game, bossNumber, nextBossLevel } from "./Game.js"
 import { MusicController } from "./Audio.js"
-import { draw, drawSplash, boardSize } from "./Draw.js"
+import { draw, drawBossSplash, drawSplash, boardSize } from "./Draw.js"
+import { FATALITIES, bossFor } from "./Bosses.js"
 import { gameOverMessages, levelMessages, partyComboName, pickDifferent } from "./Messages.js"
 import { Charts, PERIOD_LABELS, describeRun, relativeTime } from "./Scores.js"
 import { darker, mixColors, nextTheme, preferredTheme, resolve, rgba, themes } from "./Palette.js"
@@ -78,6 +79,7 @@ const fx = {
   backgroundPulse: 0,
   partySplashOpacity: 0,
   partySplashScale: 0.78,
+  splashKind: "party",
   foodBurst: 1,
   burstX: 0,
   burstY: 0,
@@ -226,7 +228,8 @@ const splashGrow = register(new Tween({
   from: 0.78, to: 1.08, duration: 990, curve: easing.outCubic, apply: v => (fx.partySplashScale = v)
 }))
 
-function startPartySplash() {
+function startSplash(kind) {
+  fx.splashKind = kind
   fx.partySplashOpacity = 0
   fx.partySplashScale = 0.78
   splashHold.stop()
@@ -293,7 +296,22 @@ let musicPauseDelay = 0
 
 // Every fresh run asks for its own token, so the clock the server checks
 // against is the clock of the run being submitted.
-game.on("runStarted", () => charts.startRun())
+game.on("runStarted", () => {
+  charts.startRun()
+})
+
+// A challenger arrives with the same fanfare Party Mode gets.
+game.on("bossArrived", number => {
+  const boss = bossFor(number)
+  startSplash("boss")
+  announce(`Boss fight. ${boss.name}. ${boss.epithet}`)
+})
+
+game.on("bossBitten", (x, y, remaining) => showEnemyBurst(remaining > 1 ? "−1  SEGMENT" : "DISARMED", x, y))
+
+game.on("bossFinishReady", () => announce("Finish him. Press a direction combination."))
+
+game.on("bossFatality", (name, flavour) => announce(`${name}. ${flavour}`))
 
 game.on("levelCompleted", () => {
   levelTransitionStarted = performance.now()
@@ -369,7 +387,7 @@ game.on("statusChanged", () => {
     gameOverMessage = pickDifferent(gameOverMessages, gameOverMessage)
     gameOverMessageChosen = true
     announce(`Game over. Score ${game.score}. ${gameOverMessage}`)
-    if (game.score > 0) {
+    if (game.score > 0 && !game.practiceRun) {
       ownRun = { score: game.score, mode: game.endlessMode ? "endless" : "levels", party: music.enabled }
       // Anything that failed earlier goes along with it.
       charts.submit(ownRun)
@@ -394,7 +412,7 @@ music.on("onset", () => foodBeatIn.restart())
 music.on("enabledChanged", () => {
   game.setPartyMode(music.enabled)
   if (music.enabled) {
-    startPartySplash()
+    startSplash("party")
   } else {
     if (waitingForLevelBeat) {
       waitingForLevelBeat = false
@@ -456,6 +474,7 @@ addEventListener("keydown", event => {
       case "t": cycleTheme(); break
       case "v": toggleFullscreen(); break
       case "c": openCharts(); break
+      case "g": jumpToNextBoss(); break
       default: return
     }
   }
@@ -541,6 +560,24 @@ for (const button of buttons) {
     button.act()
     updateHud()
   })
+}
+
+// --- trying a level out ------------------------------------------------------
+
+// Only on a machine you are developing on, or when asked for explicitly. It is
+// a way to reach a boss without playing nine levels first, and it must never
+// become a way to reach a high score without playing at all — hence both the
+// gate here and the refusal to submit the run.
+const debugKeys = location.hostname === "localhost"
+  || location.hostname === "127.0.0.1"
+  || location.protocol === "file:"
+  || new URLSearchParams(location.search).has("debug")
+
+function jumpToNextBoss() {
+  if (!debugKeys || game.endlessMode) return
+  const target = nextBossLevel(game.displayedLevel)
+  game.jumpToLevel(target)
+  announce(`Jumped to level ${target}, ${bossFor(bossNumber(target)).name}. This run will not be charted.`)
 }
 
 // --- charts ------------------------------------------------------------------
@@ -713,12 +750,16 @@ const timeText = seconds => {
 }
 
 function updateHud() {
-  el("level").textContent = game.endlessMode ? "ENDLESS" : `LEVEL ${game.level}`
+  el("level").textContent = game.endlessMode
+    ? "ENDLESS"
+    : game.bossLevel ? bossFor(bossNumber(game.displayedLevel)).name : `LEVEL ${game.level}`
   el("score").textContent = `SCORE ${game.score}${game.best ? `  ·  BEST ${game.best}` : ""}`
 
   document.body.classList.toggle("party", music.enabled)
   el("level-progress").hidden = game.endlessMode
-  el("level-progress-fill").style.width = `${game.levelProgress * 100}%`
+  // On a boss level the bar stops being progress and becomes the boss.
+  el("level-progress-fill").style.width = `${(game.bossLevel ? game.bossHealth : game.levelProgress) * 100}%`
+  el("level-progress").classList.toggle("boss", game.bossLevel)
   el("combo").hidden = !music.enabled
   el("combo-fill").style.width = `${game.comboProgress * 100}%`
   el("combo-name").hidden = !music.enabled
@@ -806,6 +847,10 @@ function frame(now) {
 
   for (const tween of tweens) tween.update(now)
 
+  // The finish window and the finish itself run on their own clock, which
+  // keeps going while everything on the board is deliberately frozen.
+  game.advanceBoss(delta)
+
   // A track too slow or too quiet to produce a strong beat must not leave the
   // level-clear screen up forever.
   if (waitingForLevelBeat && now - beatWaitStarted > LEVEL_BEAT_WAIT_MS) startNextLevel()
@@ -860,10 +905,23 @@ function frame(now) {
   // animated because it never stops while the disco ball is on the board.
   fx.discoPulse = music.enabled ? 0 : (1 - Math.cos((Math.PI * (now % 840)) / 420)) / 2
 
-  draw(ctx, { game, music, theme, fx, cell, foods, levelMessage, gameOverMessage })
+  draw(ctx, {
+    game, music, theme, fx, cell, foods, levelMessage, gameOverMessage,
+    bossNumber: bossNumber(game.displayedLevel),
+    fatalities: FATALITIES,
+    finisherInputs: game.finisherInputs,
+    fatalityName: game.fatality?.name || "",
+    fatalityFlavour: game.fatality?.flavour || ""
+  })
   if (fx.partySplashOpacity > 0) {
     splashCanvas.hidden = false
-    drawSplash(splashCtx, { theme, fx, width: innerWidth, height: innerHeight, trackName: music.trackName })
+    const splashView = {
+      theme, fx, width: innerWidth, height: innerHeight,
+      trackName: music.trackName,
+      bossNumber: bossNumber(game.displayedLevel)
+    }
+    if (fx.splashKind === "boss") drawBossSplash(splashCtx, splashView)
+    else drawSplash(splashCtx, splashView)
   } else if (!splashCanvas.hidden) {
     splashCanvas.hidden = true
   }

@@ -40,6 +40,8 @@ the filesystem will not work.
 - `t` — cycle the theme
 - `v` — fullscreen
 - `c` — charts
+- `g` — jump to the next boss level, on localhost or with `?debug`. A run that
+  used it is never charted and never sets a best score.
 - Escape — leave fullscreen, or pause
 
 On a touchscreen, drag on the board to steer and tap it to cycle the food skin.
@@ -52,10 +54,10 @@ explicit no, so the parameter can be templated in as a variable.
 
 ## How it plays
 
-Levels introduces one of eight repeating obstacle layouts after level 1 and
-gradually increases the speed. Every eighth level the gaps narrow by one cell,
-the level costs one more apple, and the tick gets 7 ms faster, down to a floor
-of 55 ms. From level 4, a snake eater hunts the tail: each bite removes one
+Levels introduces one of eight repeating obstacle layouts after level 1, then a
+boss fight, then the eight again — narrower, faster and worth more each time
+round. Every set the gaps close by one cell, the level costs one more apple,
+and the tick gets 7 ms faster, down to a floor of 55 ms. From level 4, a snake eater hunts the tail: each bite removes one
 block and one point, and steering the head into it earns two points and drives
 it away for a while. Endless is the classic open board at one speed.
 
@@ -103,6 +105,37 @@ Drop audio files anywhere on the page. They join the playlist, sorted by
 filename, and `n` cycles through them. This is the browser's answer to the
 desktop version's `~/.local/share/omasnake/music`; object URLs do not survive a
 reload, so dropped tracks last for the session.
+
+## Boss fights
+
+Every ninth level is a duel. After all eight obstacle layouts have been seen
+and before they start again — narrower, faster and worth more — a rival snake
+turns up in an empty arena, announced by name and portrait the way Party Mode
+announces itself.
+
+Both snakes hunt the same thing: each other's tail. Take a segment off the boss
+by touching its tail with your head, and it takes one off you the same way.
+Its body is a wall, so this is aimed, not charged. There is no timer and no way
+to lose length below three, so a duel can be taken slowly.
+
+When only its head is left, everything stops for **FINISH HIM!** and five
+seconds to press one of these:
+
+| | |
+|---|---|
+| `↑ ↑ ↓ ↓` | Kernel Panic |
+| `← → ← →` | Merge Conflict |
+| `↓ ↓ ↑ ↑` | Garbage Collected |
+| `← ← → →` | Stack Unwound |
+| `↑ ↓ ← →` | Force Pushed |
+
+Only the last four inputs count, so a fumbled start costs nothing. Hesitating
+past five seconds is a finish too — a worse one. Winning pays for the level it
+cleared, and whatever was scored during the fight is kept on top.
+
+The six bosses cycle: Null Pointer, Segfault, Deadlock, Stack Overflow, Race
+Condition and Memory Leak. Their portraits are drawn rather than loaded, so
+they cost nothing to download and sit correctly in every theme.
 
 ## Charts
 

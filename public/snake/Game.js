@@ -7,11 +7,36 @@
 // is testable from Node with no browser in sight. Rendering lives in Draw.js,
 // browser wiring in web.js.
 
+import { FATALITIES, MERCY } from "./Bosses.js"
+
 export const COLUMNS = 22
 export const ROWS = 16
 
 const POINTS_PER_LEVEL = 12
 const LAYOUTS_PER_CYCLE = 8
+
+// Eight layouts, then a duel. The boss is a level of its own rather than a
+// replacement, so every layout is still seen once per cycle before the set
+// starts again narrower and faster.
+export const LEVELS_PER_SET = LAYOUTS_PER_CYCLE + 1
+export const isBossLevel = level => level > 1 && level % LEVELS_PER_SET === 1
+export const bossNumber = level => (isBossLevel(level) ? Math.floor(level / LEVELS_PER_SET) : 0)
+
+export function nextBossLevel(from) {
+  let level = Math.max(1, Math.floor(from)) + 1
+  while (!isBossLevel(level)) ++level
+  return level
+}
+
+// Which of the repeating layouts a level shows, counting past the boss levels
+// that interrupt them.
+const layoutOrdinal = level => level - 2 - Math.floor((level - 1) / LEVELS_PER_SET)
+
+export const BOSS_FIGHT = "fight"
+export const BOSS_FINISH = "finish"
+export const BOSS_FATALITY = "fatality"
+const FINISH_WINDOW_MS = 5000
+const FATALITY_MS = 2400
 const COMBO_DURATION_MS = 2000
 const BEAT_WINDOW_MS = 190
 const NEAR_MISS_WINDOW_MS = 900
@@ -30,9 +55,14 @@ const has = (list, p) => list.some(cell => same(cell, p))
 // Level progression
 // ---------------------------------------------------------------------------
 
-// Every eighth level the board gets one more apple to clear, one narrower gap,
-// and one faster tick. `cycle` is how many full sets of layouts have passed.
-const cycleOf = level => (level <= 1 ? 0 : Math.floor((level - 2) / LAYOUTS_PER_CYCLE))
+// Every set the board gets one more apple to clear, one narrower gap, and one
+// faster tick. `cycle` is how many full sets of layouts have passed; a boss
+// belongs to the set it closes, not the one it opens.
+const cycleOf = level => {
+  if (level <= 1) return 0
+  if (isBossLevel(level)) return bossNumber(level) - 1
+  return Math.floor(layoutOrdinal(level) / LAYOUTS_PER_CYCLE)
+}
 
 export function pointsForLevel(level) {
   return POINTS_PER_LEVEL + cycleOf(level)
@@ -63,11 +93,12 @@ export function obstacleCells(level) {
   if (cached) return cached
 
   const cells = []
-  if (level > 1) {
+  // A boss fight is fought in an empty arena. There is enough in the way.
+  if (level > 1 && !isBossLevel(level)) {
     const cx = Math.floor(COLUMNS / 2)
     const cy = Math.floor(ROWS / 2)
     const gap = Math.max(2, 4 - cycleOf(level))
-    const kind = (level - 2) % LAYOUTS_PER_CYCLE
+    const kind = layoutOrdinal(level) % LAYOUTS_PER_CYCLE
     const hbar = (y, gapX, x0, x1) => {
       for (let x = x0; x <= x1; ++x) if (x < gapX || x >= gapX + gap) cells.push(point(x, y))
     }
@@ -180,6 +211,67 @@ export function nextSnakeEaterStep(enemy, target, obstacles, snake, wrap) {
 }
 
 // ---------------------------------------------------------------------------
+// The duel
+// ---------------------------------------------------------------------------
+
+// A boss is longer every time, up to a length that already fills most of a row.
+export const bossLength = number => Math.min(16, 6 + Math.max(1, number) * 2)
+
+const DIRECTION_NAMES = new Map([
+  ["0,-1", "up"],
+  ["0,1", "down"],
+  ["-1,0", "left"],
+  ["1,0", "right"]
+])
+
+export const directionName = (dx, dy) => DIRECTION_NAMES.get(`${dx},${dy}`) || null
+
+// Matched against the end of what was pressed, so a fumbled start costs
+// nothing — only the last four inputs have to be right.
+export function matchFatality(inputs) {
+  for (const fatality of FATALITIES) {
+    const tail = inputs.slice(-fatality.keys.length)
+    if (tail.length === fatality.keys.length && tail.every((key, i) => key === fatality.keys[i]))
+      return fatality
+  }
+  return null
+}
+
+// One step of the boss towards its target. It will not doubled back through
+// its own neck, will not walk into a body, and holds still when boxed in
+// rather than dying on the spot.
+export function nextBossStep(boss, target, blocked, wrap) {
+  if (!boss.length) return null
+  const head = boss[0]
+  const neck = boss[1]
+  const body = boss.slice(0, Math.max(0, boss.length - 1))
+  let best = null
+  let bestDistance = Infinity
+  for (const direction of [point(1, 0), point(-1, 0), point(0, 1), point(0, -1)]) {
+    const candidate = point(head.x + direction.x, head.y + direction.y)
+    if (wrap) {
+      candidate.x = (candidate.x + COLUMNS) % COLUMNS
+      candidate.y = (candidate.y + ROWS) % ROWS
+    } else if (candidate.x < 0 || candidate.x >= COLUMNS || candidate.y < 0 || candidate.y >= ROWS) {
+      continue
+    }
+    if (neck && same(candidate, neck)) continue
+    if (has(body, candidate)) continue
+    if (has(blocked, candidate)) continue
+    const dx = Math.abs(candidate.x - target.x)
+    const dy = Math.abs(candidate.y - target.y)
+    const distance = wrap
+      ? Math.min(dx, COLUMNS - dx) + Math.min(dy, ROWS - dy)
+      : dx + dy
+    if (distance < bestDistance) {
+      best = candidate
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
+// ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
 
@@ -223,6 +315,15 @@ export class Game {
     this.frenzyPickup = { ...NOWHERE }
     this.frenzyFoods = []
 
+    this.boss = []
+    this.bossPhase = "none"
+    this.bossStartLength = 0
+    this.bossPace = 0
+    this.finishRemainingMs = 0
+    this.fatalityRemainingMs = 0
+    this.finisherInputs = []
+    this.fatality = null
+
     this.score = 0
     this.bestLevels = 0
     this.bestEndless = 0
@@ -256,6 +357,9 @@ export class Game {
     this.wallsWrap = false
     this.discoBallEnabled = true
     this.partyMode = false
+    // A run that was dropped onto a level did not earn its way there, so it
+    // never counts: not for the best score, and not for the charts.
+    this.practiceRun = false
 
     this.loadSettings()
     this.reset()
@@ -277,7 +381,26 @@ export class Game {
   // --- derived state ---
 
   get level() {
-    return this.endlessMode ? 1 : Math.max(this.displayedLevel, levelForScore(this.score))
+    if (this.endlessMode) return 1
+    // A boss level is cleared by winning, not by scoring, so the level it
+    // shows is pinned until the fight is over. Without this a lucky run of
+    // apples mid-duel would start the next level on top of the boss.
+    if (this.bossPhase !== "none") return this.displayedLevel
+    return Math.max(this.displayedLevel, levelForScore(this.score))
+  }
+
+  get bossLevel() {
+    return isBossLevel(this.displayedLevel)
+  }
+
+  // What is left of the boss, for the bar that is otherwise level progress.
+  get bossHealth() {
+    if (!this.bossStartLength) return 0
+    return Math.max(0, (this.boss.length - 1) / Math.max(1, this.bossStartLength - 1))
+  }
+
+  get bossTail() {
+    return this.boss.length > 1 ? this.boss[this.boss.length - 1] : { ...NOWHERE }
   }
 
   get best() {
@@ -335,7 +458,7 @@ export class Game {
     for (let y = 0; y < ROWS; ++y) {
       for (let x = 0; x < COLUMNS; ++x) {
         const p = point(x, y)
-        if (this.isObstacle(p) || has(this.snake, p)) continue
+        if (this.isObstacle(p) || has(this.snake, p) || has(this.boss, p)) continue
         if (except !== "food" && same(p, this.food)) continue
         if (except !== "discoBall" && same(p, this.discoBall)) continue
         if (same(p, this.snakeEater) || same(p, this.reverseVenom) || same(p, this.frenzyPickup)) continue
@@ -398,7 +521,8 @@ export class Game {
   }
 
   spawnSnakeEater() {
-    if (!hasSnakeEater(this.displayedLevel, this.endlessMode) || !this.snake.length) {
+    // One enemy at a time. A boss level is the boss.
+    if (this.bossLevel || !hasSnakeEater(this.displayedLevel, this.endlessMode) || !this.snake.length) {
       this.snakeEater = { ...NOWHERE }
       return
     }
@@ -421,6 +545,124 @@ export class Game {
     }
     this.snakeEater = this.pick(free)
     this.snakeEaterPhase = 0
+  }
+
+  spawnBoss() {
+    this.boss = []
+    this.bossPhase = "none"
+    this.bossStartLength = 0
+    this.bossPace = 0
+    this.finishRemainingMs = 0
+    this.fatalityRemainingMs = 0
+    this.finisherInputs = []
+    this.fatality = null
+    if (!this.bossLevel || this.endlessMode) return
+
+    // Laid out along a row of its own, near the top and facing left, with its
+    // tail at the wall — the far end of the board from where the snake starts.
+    const number = bossNumber(this.displayedLevel)
+    const length = bossLength(number)
+    const row = 2
+    const tailX = COLUMNS - 3
+    for (let i = 0; i < length; ++i) this.boss.push(point(tailX - (length - 1 - i), row))
+    this.bossStartLength = length
+    this.bossPhase = BOSS_FIGHT
+    this.emit("bossArrived", number)
+  }
+
+  // The boss hunts the snake's tail exactly as the snake hunts the boss's.
+  // Its body is simply in the way, and lethal.
+  moveBoss() {
+    if (this.bossPhase !== BOSS_FIGHT || this.boss.length < 2 || !this.snake.length) return
+    // The first two bosses give a tick back every so often. Later ones do not.
+    ++this.bossPace
+    if (bossNumber(this.displayedLevel) <= 2 && this.bossPace % 3 === 0) return
+
+    const tail = this.snake[this.snake.length - 1]
+    const blocked = this.snake.slice(0, Math.max(0, this.snake.length - 1))
+    const step = nextBossStep(this.boss, tail, blocked, this.wallsWrap)
+    if (!step) return
+
+    this.boss.unshift(step)
+    if (same(step, tail) && this.snake.length > MINIMUM_BITEABLE_LENGTH) {
+      const bitten = this.snake.pop()
+      this.score = scoreAfterSnakeBite(this.score)
+      this.pendingGrowth = Math.max(0, this.pendingGrowth - 1)
+      this.emit("snakeBitten", bitten.x, bitten.y)
+      this.emit("scoreChanged")
+    }
+    // It never grows: the threat is losing your own length, not out-massing it.
+    this.boss.pop()
+  }
+
+  biteBoss(head) {
+    if (this.gameOver || this.boss.length < 2) return
+    this.boss.pop()
+    this.awardPoints(1)
+    this.emit("bossBitten", head.x, head.y, this.boss.length)
+    if (this.boss.length <= 1) {
+      this.bossPhase = BOSS_FINISH
+      this.finishRemainingMs = FINISH_WINDOW_MS
+      this.finisherInputs = []
+      this.emit("bossFinishReady")
+      this.emit("statusChanged")
+    }
+  }
+
+  // A direction pressed while the boss is down is a finisher input, not
+  // steering. Only the last few are kept, so a wrong start is recoverable.
+  pressFinisher(dx, dy) {
+    const name = directionName(dx, dy)
+    if (!name) return
+    this.finisherInputs.push(name)
+    while (this.finisherInputs.length > 6) this.finisherInputs.shift()
+    const fatality = matchFatality(this.finisherInputs)
+    if (fatality) this.performFatality(fatality)
+  }
+
+  performFatality(fatality) {
+    if (this.bossPhase !== BOSS_FINISH) return
+    this.fatality = fatality
+    this.bossPhase = BOSS_FATALITY
+    this.fatalityRemainingMs = FATALITY_MS
+    this.emit("bossFatality", fatality.name, fatality.flavour)
+    this.emit("statusChanged")
+  }
+
+  // Clocks that only run during a duel: the window to finish it, and the
+  // length of the finish itself.
+  advanceBoss(milliseconds) {
+    if (milliseconds <= 0) return
+    if (this.bossPhase === BOSS_FINISH) {
+      this.finishRemainingMs = Math.max(0, this.finishRemainingMs - milliseconds)
+      if (this.finishRemainingMs === 0) this.performFatality(MERCY)
+      return
+    }
+    if (this.bossPhase === BOSS_FATALITY) {
+      this.fatalityRemainingMs = Math.max(0, this.fatalityRemainingMs - milliseconds)
+      if (this.fatalityRemainingMs === 0) this.defeatBoss()
+    }
+  }
+
+  // Winning a boss level tops the score up to whatever the next level needs,
+  // which is what starts the ordinary transition. Anything scored during the
+  // fight is kept.
+  defeatBoss() {
+    const cleared = this.displayedLevel
+    this.boss = []
+    this.bossPhase = "none"
+    this.score = Math.max(this.score, scoreForLevel(cleared + 1))
+    this.pendingGrowth = 0
+    this.completedLevel = cleared
+    this.levelTransition = true
+    this.emit("bossDefeated", cleared)
+    this.emit("levelCompleted", cleared)
+    this.emit("scoreChanged")
+    this.emit("statusChanged")
+  }
+
+  get finishProgress() {
+    return this.finishRemainingMs / FINISH_WINDOW_MS
   }
 
   moveSnakeEater() {
@@ -486,6 +728,9 @@ export class Game {
   }
 
   advancePartyEvents(ms) {
+    // Gates, venom and frenzies would all be in the way of a duel that is
+    // already about reading the board.
+    if (this.bossLevel) return
     if (hasBeatGates(this.displayedLevel)) {
       if (this.gateLifetimeMs > 0) {
         this.gateLifetimeMs = Math.max(0, this.gateLifetimeMs - ms)
@@ -526,6 +771,7 @@ export class Game {
   // --- the loop ---
 
   reset() {
+    this.practiceRun = false
     this.score = 0
     this.elapsedSeconds = 0
     this.gameOver = false
@@ -544,6 +790,7 @@ export class Game {
     this.danceTurnStreak = 0
     this.lastTurnSign = 0
     this.placeSnake()
+    this.spawnBoss()
     this.spawnFood()
     this.spawnDiscoBall()
     this.spawnSnakeEater()
@@ -559,6 +806,9 @@ export class Game {
 
   tick() {
     if (!this.running || this.gameOver || this.levelTransition || !this.snake.length) return
+    // Everything holds still while the boss is down and the finish is being
+    // decided. That is the whole drama of it.
+    if (this.bossPhase === BOSS_FINISH || this.bossPhase === BOSS_FATALITY) return
 
     const previousDirection = this.direction
     if (this.turnQueue.length) this.direction = this.turnQueue.shift()
@@ -575,6 +825,10 @@ export class Game {
     }
 
     const eats = same(head, this.food)
+    // The boss is beaten one segment at a time, from the tail. Its body is a
+    // wall, so this has to be aimed rather than charged.
+    const bitesBoss = this.boss.length > 1 && same(head, this.bossTail)
+    const hitsBossBody = !bitesBoss && has(this.boss, head)
     const hitsDiscoBall = same(head, this.discoBall)
     const hitsSnakeEater = same(head, this.snakeEater)
     const hitsReverseVenom = same(head, this.reverseVenom)
@@ -592,12 +846,14 @@ export class Game {
         break
       }
     }
-    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf) {
+    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf || hitsBossBody) {
       this.finish()
       return
     }
 
     this.snake.unshift(head)
+
+    if (bitesBoss) this.biteBoss(head)
 
     if (hitsSnakeEater) {
       this.snakeEater = { ...NOWHERE }
@@ -676,7 +932,10 @@ export class Game {
       }
     }
 
-    if (!this.levelTransition) this.moveSnakeEater()
+    if (!this.levelTransition) {
+      this.moveSnakeEater()
+      this.moveBoss()
+    }
     this.emit("boardChanged")
   }
 
@@ -704,7 +963,12 @@ export class Game {
   // Two turns may be queued, so a fast double tap around a corner survives a
   // tick boundary.
   turn(dx, dy) {
-    if (this.gameOver || !this.running || Math.abs(dx) + Math.abs(dy) !== 1 || this.turnQueue.length >= 2) return
+    if (Math.abs(dx) + Math.abs(dy) !== 1) return
+    if (this.bossPhase === BOSS_FINISH) {
+      this.pressFinisher(dx, dy)
+      return
+    }
+    if (this.gameOver || !this.running || this.turnQueue.length >= 2) return
     if (this.reverseVenomRemainingMs > 0) {
       // A quarter turn clockwise. The `dy === 0` arm only exists to keep a
       // negative zero out of the queue, where it reads as a different vector.
@@ -807,11 +1071,38 @@ export class Game {
     this.emit("statusChanged")
   }
 
+  // Drops the run straight onto a level, for trying one out without playing
+  // up to it. Nothing calls this during normal play, and web.js refuses to
+  // send a run that used it to the charts.
+  jumpToLevel(target) {
+    if (this.endlessMode) return
+    this.practiceRun = true
+    this.score = scoreForLevel(target)
+    this.displayedLevel = target
+    this.gameOver = false
+    this.running = true
+    this.levelTransition = false
+    this.completedLevel = 0
+    this.elapsedSeconds = 0
+    this.pendingGrowth = 0
+    this.placeSnake()
+    this.spawnBoss()
+    this.spawnFood()
+    this.spawnDiscoBall()
+    this.spawnSnakeEater()
+    this.resetPartyEvents()
+    this.emit("boardChanged")
+    this.emit("scoreChanged")
+    this.emit("statusChanged")
+    this.emit("runStarted")
+  }
+
   // Called while the board is invisible, halfway through the level fade.
   prepareNextLevel() {
     if (!this.levelTransition) return
     this.displayedLevel = this.level
     this.placeSnake()
+    this.spawnBoss()
     this.spawnFood()
     this.spawnDiscoBall()
     this.spawnSnakeEater()
@@ -822,8 +1113,10 @@ export class Game {
   finish() {
     this.gameOver = true
     this.running = false
-    if (this.endlessMode) this.bestEndless = Math.max(this.bestEndless, this.score)
-    else this.bestLevels = Math.max(this.bestLevels, this.score)
+    if (!this.practiceRun) {
+      if (this.endlessMode) this.bestEndless = Math.max(this.bestEndless, this.score)
+      else this.bestLevels = Math.max(this.bestLevels, this.score)
+    }
     this.saveSettings()
     this.emit("statusChanged")
     this.emit("scoreChanged")

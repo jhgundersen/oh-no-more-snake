@@ -28,6 +28,10 @@ right and this one has a bug — with the deliberate exceptions listed under
   for `src/theme.cpp`, which reads Omarchy's `colors.toml`.
 - `public/snake/Messages.js` — the level-clear, game-over and combo pools,
   copied verbatim from the QML.
+- `public/snake/Bosses.js` — the boss roster, their drawn portraits, and the
+  finisher combinations. Portraits are canvas shapes rather than image files:
+  six pictures would be most of the page's weight, and drawn ones sit correctly
+  in every theme.
 - `public/snake/web.js` — input, timers, animation values, the HUD, and the
   render loop. The half of `Main.qml` that is not drawing.
 - `public/index.html` — the page, the CSS, and the only DOM the game has.
@@ -82,6 +86,15 @@ These come from the Qt version and hold here too.
 
 - Preserve both Levels and Endless, their separate best scores, queued two-turn
   input, solid/wrapping borders, food skins, and lifetime playtime.
+- A boss level is an extra level, never a replacement for a layout: all eight
+  are still seen once per set. `layoutOrdinal` is what counts past them, and
+  `levelThresholds` and the layout tests are what catch it if that slips.
+- A boss level is cleared by winning, not by scoring, so `level` is pinned to
+  `displayedLevel` for the duration. Without that a lucky run of apples during
+  a duel starts the next level on top of the boss.
+- Nothing a run did not earn may reach a best score or the charts.
+  `jumpToLevel` sets `practiceRun`, and both `finish()` and the chart
+  submission check it.
 - Moving into the current tail cell is legal when that tail moves away during
   the same tick.
 - Level transitions pause movement and clocks, fade out the completed layout,

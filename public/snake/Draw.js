@@ -9,7 +9,19 @@
 
 import { COLUMNS, ROWS } from "./Game.js"
 import { spectrumRange } from "./Audio.js"
-import { mixColors, rgba } from "./Palette.js"
+import { bossFor, drawPortrait } from "./Bosses.js"
+import { mixColors, parseColor, rgba } from "./Palette.js"
+
+// The boss palette is plain hex from Bosses.js, not the parsed theme colours.
+const hexCache = new Map()
+const parseHex = value => {
+  let parsed = hexCache.get(value)
+  if (!parsed) {
+    parsed = parseColor(value)
+    hexCache.set(value, parsed)
+  }
+  return parsed
+}
 
 const roundRect = (ctx, x, y, width, height, radius) => {
   ctx.beginPath()
@@ -127,6 +139,10 @@ export function draw(ctx, view) {
     }
   })
   ctx.globalAlpha = 1
+
+  // --- the boss ---
+
+  if (game.boss.length) drawBoss(ctx, view)
 
   // --- the snake ---
 
@@ -282,6 +298,13 @@ export function draw(ctx, view) {
     ctx.globalAlpha = 1
   }
 
+  // --- the finish ---
+
+  // Never underneath GAME OVER: whichever ended the run is the one to read.
+  if (!game.gameOver && (game.bossPhase === "finish" || game.bossPhase === "fatality")) {
+    drawFinish(ctx, view, width, height)
+  }
+
   // --- overlay ---
 
   if (game.gameOver || !game.running || game.levelTransition) {
@@ -315,6 +338,129 @@ export function draw(ctx, view) {
   ctx.restore()
 }
 
+// The rival. Darker and colder than the snake, with its tail marked, because
+// the tail is the only part of it worth aiming at.
+function drawBoss(ctx, view) {
+  const { game, theme, fx, cell } = view
+  const boss = bossFor(view.bossNumber)
+  const radius = Math.max(2, cell * 0.22)
+  const size = cell - 2
+  const tailIndex = game.boss.length - 1
+
+  ctx.globalAlpha = fx.boardContentOpacity
+  game.boss.forEach((segment, index) => {
+    const x = segment.x * cell + 1
+    const y = segment.y * cell + 1
+    const head = index === 0
+    const tail = index === tailIndex && game.boss.length > 1
+
+    // The tail is the only part of a boss worth aiming at, so it is marked
+    // like a target rather than merely shaded differently.
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180)
+    if (tail) {
+      const grow = 4 + pulse * 4
+      ctx.globalAlpha = fx.boardContentOpacity * (0.3 + pulse * 0.35)
+      fillRound(ctx, x - grow / 2, y - grow / 2, size + grow, size + grow, radius + 3, theme.accent)
+      ctx.globalAlpha = fx.boardContentOpacity
+    }
+
+    fillRound(ctx, x, y, size, size, radius,
+      head ? boss.skin : tail ? rgba(mixColors(parseHex(boss.dark), parseHex(boss.skin), 0.4)) : boss.dark)
+
+    if (tail) {
+      ctx.lineWidth = 2
+      ctx.strokeStyle = theme.accent
+      ctx.stroke()
+      // A bite mark, so it reads as a target even in a still frame.
+      ctx.globalAlpha = fx.boardContentOpacity * (0.55 + pulse * 0.45)
+      ctx.beginPath()
+      ctx.arc(x + size / 2, y + size / 2, size * 0.22, 0, Math.PI * 2)
+      ctx.strokeStyle = theme.foreground
+      ctx.lineWidth = Math.max(1.5, size * 0.1)
+      ctx.stroke()
+      ctx.globalAlpha = fx.boardContentOpacity
+    } else if (!head) {
+      ctx.lineWidth = 1
+      ctx.strokeStyle = boss.skin
+      ctx.stroke()
+    }
+
+    if (head) {
+      // Two eyes, so it is obvious which end is coming for you.
+      const eye = Math.max(1.5, cell * 0.11)
+      ctx.fillStyle = "#101014"
+      ctx.beginPath()
+      ctx.arc(x + size * 0.33, y + size * 0.36, eye, 0, Math.PI * 2)
+      ctx.arc(x + size * 0.67, y + size * 0.36, eye, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  })
+  ctx.globalAlpha = 1
+}
+
+// FINISH HIM, and then whatever was pressed.
+function drawFinish(ctx, view, width, height) {
+  const { game, theme, cell } = view
+  const finishing = game.bossPhase === "fatality"
+  const head = game.boss[0]
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)"
+  ctx.fillRect(0, 0, width, height)
+
+  if (head) {
+    // The last segment left, thrashing.
+    const shake = finishing ? Math.sin(performance.now() / 26) * cell * 0.22 : 0
+    const pulse = 1 + 0.14 * Math.sin(performance.now() / 120)
+    const boss = bossFor(view.bossNumber)
+    ctx.save()
+    ctx.translate((head.x + 0.5) * cell + shake, (head.y + 0.5) * cell)
+    ctx.scale(pulse, pulse)
+    fillRound(ctx, -cell / 2, -cell / 2, cell - 2, cell - 2, cell * 0.25, boss.skin)
+    ctx.restore()
+  }
+
+  if (!finishing) {
+    const flash = Math.sin(performance.now() / 140) > -0.3
+    if (flash) {
+      label(ctx, "FINISH HIM!", width / 2, height * 0.32, Math.max(20, cell * 1.1), "#f7768e", { spacing: 3 })
+    }
+    // A cheat sheet, because a fatality nobody can find is just a timer.
+    let y = height * 0.44
+    for (const fatality of view.fatalities) {
+      label(ctx, `${arrowsFor(fatality.keys)}   ${fatality.name}`, width / 2, y, Math.max(10, cell * 0.44), "white", { bold: false })
+      y += Math.max(14, cell * 0.62)
+    }
+    // What has been pressed so far, and how long is left.
+    const pressed = view.finisherInputs.slice(-4)
+    if (pressed.length) {
+      label(ctx, arrowsFor(pressed), width / 2, height * 0.86, Math.max(14, cell * 0.7), theme.accent)
+    }
+    const barWidth = width * 0.6 * game.finishProgress
+    ctx.fillStyle = rgba(view.theme.colors.accent, 0.9)
+    ctx.fillRect((width - barWidth) / 2, height * 0.9, barWidth, Math.max(3, cell * 0.12))
+    return
+  }
+
+  // A plate behind the words, because the boss died wherever it died and the
+  // text has to be readable on top of it.
+  const lines = wrap(ctx, view.fatalityFlavour, width - 80, 13)
+  const nameSize = Math.max(18, cell * 0.95)
+  const top = height * 0.34 - nameSize
+  const plateHeight = nameSize + 14 + lines.length * 18 + 16
+  ctx.fillStyle = "rgba(0, 0, 0, 0.72)"
+  ctx.fillRect(0, top, width, plateHeight)
+
+  label(ctx, view.fatalityName, width / 2, height * 0.34, nameSize, "#f7768e", { spacing: 2 })
+  let y = height * 0.34 + 24
+  for (const line of lines) {
+    label(ctx, line, width / 2, y, 13, "white", { bold: false })
+    y += 18
+  }
+}
+
+const ARROWS = { up: "↑", down: "↓", left: "←", right: "→" }
+const arrowsFor = keys => keys.map(key => ARROWS[key] || "?").join(" ")
+
 // Word wrapping for the level-clear and game-over lines, which are written to
 // be read rather than truncated.
 function wrap(ctx, text, maxWidth, size) {
@@ -333,6 +479,55 @@ function wrap(ctx, text, maxWidth, size) {
   }
   if (current) lines.push(current)
   return lines
+}
+
+// The boss's introduction: portrait, name and epithet, on the same card the
+// Party Mode splash uses so the two read as the same kind of announcement.
+export function drawBossSplash(ctx, view) {
+  const { theme, fx, width, height } = view
+  if (fx.partySplashOpacity <= 0) return
+  const colors = theme.colors
+  const boss = bossFor(view.bossNumber)
+
+  ctx.clearRect(0, 0, width, height)
+  ctx.globalAlpha = fx.partySplashOpacity
+  ctx.fillStyle = rgba(colors.background, 0.82)
+  ctx.fillRect(0, 0, width, height)
+
+  const cardWidth = Math.min(width - 48, 470)
+  const cardHeight = 188
+  ctx.save()
+  ctx.translate(width / 2, height / 2)
+  ctx.scale(fx.partySplashScale, fx.partySplashScale)
+  ctx.translate(-cardWidth / 2, -cardHeight / 2)
+
+  ctx.shadowColor = boss.skin
+  ctx.shadowBlur = 34
+  fillRound(ctx, 0, 0, cardWidth, cardHeight, 18, rgba(mixColors(colors.background, colors.foreground, 0.08)))
+  ctx.shadowBlur = 0
+  ctx.lineWidth = 3
+  ctx.strokeStyle = boss.skin
+  ctx.stroke()
+
+  const stripe = ctx.createLinearGradient(0, 0, cardWidth, 0)
+  stripe.addColorStop(0, boss.dark)
+  stripe.addColorStop(0.5, boss.skin)
+  stripe.addColorStop(1, boss.dark)
+  fillRound(ctx, 0, 0, cardWidth, 7, 4, stripe)
+
+  const portrait = 118
+  drawPortrait(ctx, boss, 22, (cardHeight - portrait) / 2 + 6, portrait)
+
+  const textLeft = 22 + portrait + 20
+  ctx.textAlign = "left"
+  label(ctx, "CHALLENGER", textLeft, cardHeight / 2 - 34, 11, theme.muted, { align: "left", spacing: 3 })
+  label(ctx, boss.name, textLeft, cardHeight / 2 - 6, 25, theme.foreground, { align: "left", spacing: 1 })
+  for (const [index, line] of wrap(ctx, boss.epithet, cardWidth - textLeft - 22, 12).entries()) {
+    label(ctx, line, textLeft, cardHeight / 2 + 20 + index * 17, 12, boss.skin, { align: "left", bold: false })
+  }
+  ctx.textAlign = "center"
+  ctx.restore()
+  ctx.globalAlpha = 1
 }
 
 // The Party Mode splash, drawn over the whole page rather than the board.
