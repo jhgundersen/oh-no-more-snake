@@ -116,14 +116,17 @@ announces itself.
 
 Eat him. Every part of a boss is worth reaching: bite the tail and it gets
 shorter, bite the middle and it comes apart, leaving a headless piece to drift
-around the arena until you eat that too. Reach the head and the fight is over
-on the spot — whatever was still attached to it sloughs off and the finish
-begins.
+around the arena until you eat that too.
+
+Reaching the head ends the fight on the spot — but only from the side or from
+behind. Head-on it eats you instead, and which of the two it will be is written
+on its face: a boss's red eyes point the way it is looking. It is chasing your
+tail, so where your tail is decides which way it turns.
 
 It is hunting you the same way. It takes blocks off your tail one at a time,
-and there is no floor to that: eaten down to your last block, or caught by the
-head at any length, is a loss. There is no timer, so a duel can be taken
-slowly — but not indefinitely.
+with no floor under it: eaten down to your last block is a loss. It will not
+walk into the rest of you, so a duel can be taken slowly — the only thing that
+kills you quickly is its mouth.
 
 When only its head is left, everything stops for **FINISH HIM!** and five
 seconds to press one of these:

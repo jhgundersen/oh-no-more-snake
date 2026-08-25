@@ -414,6 +414,29 @@ export class Game {
     return this.husks.flatMap(husk => husk.cells)
   }
 
+  // Which way the boss is looking, taken from its own neck. Wrapping makes the
+  // raw difference large, so a step across the edge is read as the step it is.
+  get bossFacing() {
+    if (this.boss.length < 2) return { x: -1, y: 0 }
+    let dx = this.boss[0].x - this.boss[1].x
+    let dy = this.boss[0].y - this.boss[1].y
+    if (this.wallsWrap) {
+      if (dx > 1) dx -= COLUMNS
+      if (dx < -1) dx += COLUMNS
+      if (dy > 1) dy -= ROWS
+      if (dy < -1) dy += ROWS
+    }
+    return { x: Math.sign(dx), y: Math.sign(dy) }
+  }
+
+  // Going for the head is the fast way to win and the fast way to lose. Taken
+  // from the side or from behind it is a kill; taken head-on it is a meal, and
+  // which of the two it will be is written on its face.
+  facesHeadOn(direction) {
+    const facing = this.bossFacing
+    return facing.x === -direction.x && facing.y === -direction.y
+  }
+
   get bossTail() {
     return this.boss.length > 1 ? this.boss[this.boss.length - 1] : { ...NOWHERE }
   }
@@ -597,33 +620,31 @@ export class Game {
     ++this.bossPace
     if (bossNumber(this.displayedLevel) <= 2 && this.bossPace % 3 === 0) return
 
-    const playerHead = this.snake[0]
     const tail = this.snake[this.snake.length - 1]
-    // The tail is the bite and the head is the kill. Only what lies between
-    // them is body it has to go around.
-    const blocked = [...this.snake.slice(1, Math.max(1, this.snake.length - 1)), ...this.huskCells]
+    // It eats from the tail and only from the tail. The rest of the snake,
+    // head included, is something to go around — otherwise moving in to bite
+    // its head is fatal by construction: the boss gets a move after yours, and
+    // stepping onto your head is usually its shortest way to your tail.
+    const blocked = [...this.snake.slice(0, Math.max(0, this.snake.length - 1)), ...this.huskCells]
     const step = nextBossStep(this.boss, tail, blocked, this.wallsWrap)
     if (!step) return
 
     this.boss.unshift(step)
     // It never grows: the threat is losing your own length, not out-massing it.
     this.boss.pop()
+    if (!same(step, tail)) return
 
-    // Reaching the head ends the run. When only one block is left that block
-    // is the head, so being eaten down to nothing arrives here too — but only
-    // when the boss actually reaches it, not merely because it is alone.
-    if (same(step, playerHead)) {
+    // The last block is the head, so being eaten down to nothing ends here.
+    if (this.snake.length <= 1) {
       this.emit("snakeBitten", step.x, step.y)
       this.finish()
       return
     }
-    if (same(step, tail)) {
-      const bitten = this.snake.pop()
-      this.score = scoreAfterSnakeBite(this.score)
-      this.pendingGrowth = Math.max(0, this.pendingGrowth - 1)
-      this.emit("snakeBitten", bitten.x, bitten.y)
-      this.emit("scoreChanged")
-    }
+    const bitten = this.snake.pop()
+    this.score = scoreAfterSnakeBite(this.score)
+    this.pendingGrowth = Math.max(0, this.pendingGrowth - 1)
+    this.emit("snakeBitten", bitten.x, bitten.y)
+    this.emit("scoreChanged")
   }
 
   // Bites one segment out of the boss. Taking it from the tail simply
@@ -950,7 +971,9 @@ export class Game {
     // it in two; reaching the head finishes the fight outright.
     const bossIndex = this.boss.findIndex(cell => same(cell, head))
     const bitesBoss = bossIndex > 0
-    const takesBossHead = bossIndex === 0
+    const meetsBossHead = bossIndex === 0
+    const devoured = meetsBossHead && this.boss.length > 1 && this.facesHeadOn(this.direction)
+    const takesBossHead = meetsBossHead && !devoured
     const huskHit = this.findHusk(head)
     const hitsDiscoBall = same(head, this.discoBall)
     const hitsSnakeEater = same(head, this.snakeEater)
@@ -969,7 +992,8 @@ export class Game {
         break
       }
     }
-    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf) {
+    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf || devoured) {
+      if (devoured) this.emit("devoured", head.x, head.y)
       this.finish()
       return
     }

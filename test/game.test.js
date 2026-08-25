@@ -422,17 +422,74 @@ test("the boss eats you down, and the last block is the last block", () => {
   assert.ok(game.gameOver, "eaten down to nothing is a loss")
 })
 
-test("the boss taking the head ends the run even at full length", () => {
+test("the boss goes around the head and takes the tail", () => {
   const game = fresh()
   game.displayedLevel = 10
   game.wallsWrap = false
   game.spawnBoss()
-  // Its head sits beside the snake's head, with the tail beyond.
+  // Its head sits beside the snake's head, with the snake's tail beyond.
   game.snake = [{ x: 10, y: 8 }, { x: 10, y: 9 }, { x: 10, y: 10 }, { x: 10, y: 11 }]
   game.boss = [{ x: 9, y: 8 }, { x: 8, y: 8 }]
   game.bossPace = 1
   game.moveBoss()
-  assert.ok(game.gameOver, "it went for the tail and found the head on the way")
+  assert.ok(!game.gameOver, "a snake with body left cannot be killed by a head-on")
+  assert.notDeepEqual(game.boss[0], { x: 10, y: 8 }, "and the head is not somewhere it may step")
+})
+
+test("the head is taken from the side, and taken head-on takes you", () => {
+  const setup = approach => {
+    const game = fresh()
+    game.score = scoreForLevel(10)
+    game.displayedLevel = 10
+    game.wallsWrap = false
+    game.prepareNextLevel = () => {}
+    game.spawnBoss()
+    // Facing left, along a row, and it holds still for the tick being tested.
+    game.boss = [{ x: 10, y: 8 }, { x: 11, y: 8 }, { x: 12, y: 8 }, { x: 13, y: 8 }]
+    game.bossPace = 2 // the next move is a skipped one
+    game.food = { x: 2, y: 14 }
+    return game
+  }
+
+  // Straight down its throat.
+  const headOn = setup()
+  assert.deepEqual(headOn.bossFacing, { x: -1, y: 0 })
+  headOn.snake = [{ x: 9, y: 8 }, { x: 8, y: 8 }, { x: 7, y: 8 }]
+  headOn.direction = { x: 1, y: 0 }
+  headOn.tick()
+  assert.ok(headOn.gameOver, "it was looking right at you")
+
+  // The same head, reached from underneath.
+  const fromBelow = setup()
+  fromBelow.snake = [{ x: 10, y: 9 }, { x: 10, y: 10 }, { x: 10, y: 11 }]
+  fromBelow.direction = { x: 0, y: -1 }
+  fromBelow.tick()
+  assert.ok(!fromBelow.gameOver, "it never saw you coming")
+  assert.equal(fromBelow.bossPhase, "finish")
+})
+
+test("being devoured says so", () => {
+  const game = fresh()
+  game.displayedLevel = 10
+  game.wallsWrap = false
+  game.spawnBoss()
+  game.boss = [{ x: 10, y: 8 }, { x: 11, y: 8 }, { x: 12, y: 8 }]
+  game.bossPace = 2
+  game.snake = [{ x: 9, y: 8 }, { x: 8, y: 8 }, { x: 7, y: 8 }]
+  game.direction = { x: 1, y: 0 }
+  game.food = { x: 2, y: 14 }
+  let told = null
+  game.on("devoured", (x, y) => (told = { x, y }))
+  game.tick()
+  assert.deepEqual(told, { x: 10, y: 8 })
+})
+
+test("a boss with nothing but a head left has no jaws to speak of", () => {
+  // At one segment the fight is already over; the finish owns it from there.
+  const game = fresh()
+  game.displayedLevel = 10
+  game.boss = [{ x: 10, y: 8 }]
+  assert.deepEqual(game.bossFacing, { x: -1, y: 0 })
 })
 
 test("a bite through the middle cuts the boss in two", () => {

@@ -94,15 +94,19 @@ These come from the Qt version and hold here too.
 - A boss level is cleared by winning, not by scoring, so `level` is pinned to
   `displayedLevel` for the duration. Without that a lucky run of apples during
   a duel starts the next level on top of the boss.
-- Nothing about a boss kills the snake by being touched. Its body splits when
-  bitten, what comes off drifts as a headless husk that can also be eaten, and
-  reaching its head ends the fight outright. The duel is lost the other way
-  round: the boss eats blocks off the snake's tail with no floor under it, and
-  reaching the snake's head ends the run. If a duel is too hard or too easy,
-  those two rules are the dial, not the boss's speed.
-- `moveBoss` must only kill by *arriving* at the snake's head. An earlier
-  version also ended the run whenever the snake was down to one block, which
-  killed players from across the board.
+- A boss's body never kills by being touched: it splits when bitten, and what
+  comes off drifts as a headless husk that can also be eaten. Only its mouth
+  is lethal. Reaching the head from the side or behind wins outright; reaching
+  it head-on loses. That one rule is what makes a duel losable at all — without
+  it a snake can walk straight at the head and take it every time, which it
+  could, four hundred times out of four hundred.
+- The rule has to stay legible or it is just an unfair death. A boss's red eyes
+  face the way it is looking, the arena says "never head-on", and losing to the
+  jaws says so by name instead of drawing from the usual message pool.
+- `moveBoss` eats from the tail and only the tail. It must not step onto the
+  snake's head: the boss moves after the snake does, so going in to bite its
+  head would be fatal by construction. Being eaten down to the last block is
+  the loss, and that block is the head.
 - Eyes are how the two snakes are told apart, not colour: wide and friendly on
   the snake, narrow and red under a brow on a boss. They face the direction of
   travel, which is also what makes the head readable at a glance.

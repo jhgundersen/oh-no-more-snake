@@ -475,12 +475,16 @@ function drawHusks(ctx, view) {
   ctx.globalAlpha = 1
 }
 
-// Says what to do, in the same voice the finish will use.
+// Says what to do, and the one thing that will stop you doing it. A rule
+// nobody can discover is just an unfair death, and this is the whole of it.
 function drawEatHim(ctx, view, width) {
   const { theme, cell } = view
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 520)
+  const top = Math.max(18, cell * 1.1)
   ctx.globalAlpha = 0.3 + pulse * 0.3
-  label(ctx, "EAT HIM!", width / 2, Math.max(18, cell * 1.1), Math.max(13, cell * 0.62), theme.foreground, { spacing: 2 })
+  label(ctx, "EAT HIM!", width / 2, top, Math.max(13, cell * 0.62), theme.foreground, { spacing: 2 })
+  ctx.globalAlpha = 0.42
+  label(ctx, "never head-on", width / 2, top + Math.max(12, cell * 0.5), Math.max(9, cell * 0.36), theme.muted, { bold: false })
   ctx.globalAlpha = 1
 }
 

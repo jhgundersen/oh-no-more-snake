@@ -130,6 +130,8 @@ let levelMessage = ""
 let gameOverMessage = ""
 let gameOverMessageChosen = false
 let waitingForLevelBeat = false
+// Set when a run ends for a reason worth naming, in place of the usual pool.
+let pendingGameOverMessage = null
 let levelTransitionStarted = 0
 let beatWaitStarted = 0
 
@@ -359,6 +361,14 @@ game.on("bossBitten", (x, y, remaining) => showEnemyBurst(remaining > 1 ? "−1 
 
 game.on("bossFinishReady", () => announce("Finish him. Press a direction combination."))
 
+// Losing to the jaws deserves to say why, rather than drawing a line from the
+// ordinary pool and leaving the rule to be guessed at twice.
+game.on("devoured", (x, y) => {
+  const boss = bossFor(bossNumber(game.displayedLevel))
+  pendingGameOverMessage = `${boss.name} was facing you. That is what the eyes are for.`
+  showEnemyBurst("DEVOURED", x, y)
+})
+
 game.on("bossFatality", (name, flavour) => announce(`${name}. ${flavour}`))
 
 game.on("levelCompleted", () => {
@@ -434,7 +444,8 @@ game.on("statusChanged", () => {
     }
   }
   if (game.gameOver && !gameOverMessageChosen) {
-    gameOverMessage = pickDifferent(gameOverMessages, gameOverMessage)
+    gameOverMessage = pendingGameOverMessage || pickDifferent(gameOverMessages, gameOverMessage)
+    pendingGameOverMessage = null
     gameOverMessageChosen = true
     announce(`Game over. Score ${game.score}. ${gameOverMessage}`)
     if (game.score > 0 && !game.practiceRun) {
