@@ -39,55 +39,21 @@ const fillRound = (ctx, x, y, width, height, radius, style) => {
 // at a glance which end of something is the end that matters.
 function drawFace(ctx, { x, y, size, direction, angry }) {
   const forward = direction && (direction.x || direction.y) ? direction : { x: 1, y: 0 }
-  // Across the direction of travel, so the pair always sits side by side.
+  // Across the direction of travel, so the pair always sits side by side and
+  // the head reads as a head whichever way it is going.
   const across = { x: -forward.y, y: forward.x }
-  const centreX = x + size / 2 + forward.x * size * 0.1
-  const centreY = y + size / 2 + forward.y * size * 0.1
-  const spread = size * 0.21
-  const white = angry ? size * 0.17 : size * 0.21
-  const outline = Math.max(1, size * 0.05)
+  const centreX = x + size / 2 + forward.x * size * 0.12
+  const centreY = y + size / 2 + forward.y * size * 0.12
+  const spread = size * 0.22
+  const dot = size * 0.13
 
+  ctx.fillStyle = angry ? "#ff4d4d" : "#101014"
+  ctx.beginPath()
   for (const side of [-1, 1]) {
-    const ex = centreX + across.x * spread * side
-    const ey = centreY + across.y * spread * side
-
-    // The ring matters as much as the fill: the snake's head is already the
-    // palest thing on the board, and a white eye on it would be no eye at all.
-    ctx.beginPath()
-    ctx.arc(ex, ey, white, 0, Math.PI * 2)
-    ctx.fillStyle = angry ? "#ff4d4d" : "#ffffff"
-    ctx.fill()
-    ctx.lineWidth = outline
-    ctx.strokeStyle = "rgba(16, 16, 20, 0.9)"
-    ctx.stroke()
-
-    ctx.beginPath()
-    if (angry) {
-      // A vertical slit, the way a snake that means it looks at you.
-      ctx.ellipse(ex, ey, white * 0.3, white * 0.72, Math.atan2(across.y, across.x), 0, Math.PI * 2)
-    } else {
-      // Pupils cast slightly ahead, which is most of what makes it friendly.
-      ctx.arc(ex + forward.x * size * 0.045, ey + forward.y * size * 0.045, white * 0.52, 0, Math.PI * 2)
-    }
-    ctx.fillStyle = "#101014"
-    ctx.fill()
-
-    if (!angry) continue
-
-    // A short brow in front of each eye, its inner end pushed furthest
-    // forward. Two of them make the V that reads as a scowl.
-    const innerX = ex - across.x * white * 0.15 * side + forward.x * white * 1.5
-    const innerY = ey - across.y * white * 0.15 * side + forward.y * white * 1.5
-    const outerX = ex + across.x * white * 1.1 * side + forward.x * white * 0.7
-    const outerY = ey + across.y * white * 1.1 * side + forward.y * white * 0.7
-    ctx.beginPath()
-    ctx.moveTo(innerX, innerY)
-    ctx.lineTo(outerX, outerY)
-    ctx.strokeStyle = "#101014"
-    ctx.lineWidth = Math.max(1.2, size * 0.09)
-    ctx.lineCap = "round"
-    ctx.stroke()
+    ctx.moveTo(centreX + across.x * spread * side + dot, centreY + across.y * spread * side)
+    ctx.arc(centreX + across.x * spread * side, centreY + across.y * spread * side, dot, 0, Math.PI * 2)
   }
+  ctx.fill()
 }
 
 // A glyph centred in one cell, the way a QML Text sized to the cell centres it.
@@ -199,7 +165,11 @@ export function draw(ctx, view) {
   // --- the boss ---
 
   if (game.husks.length) drawHusks(ctx, view)
-  if (game.boss.length) drawBoss(ctx, view)
+  // Once the finish starts, the overlay draws whatever is left of the boss
+  // itself — drawing it here as well would leave a stray block in the middle
+  // of every finishing move.
+  const finishing = game.bossPhase === "finish" || game.bossPhase === "fatality"
+  if (game.boss.length && !finishing) drawBoss(ctx, view)
   if (game.bossPhase === "fight" && !game.gameOver && game.running) drawEatHim(ctx, view, width)
 
   // --- the snake ---
@@ -530,20 +500,191 @@ function drawFinish(ctx, view, width, height) {
     return
   }
 
-  // A plate behind the words, because the boss died wherever it died and the
-  // text has to be readable on top of it.
-  const lines = wrap(ctx, view.fatalityFlavour, width - 80, 13)
-  const nameSize = Math.max(18, cell * 0.95)
-  const top = height * 0.34 - nameSize
-  const plateHeight = nameSize + 14 + lines.length * 18 + 16
-  ctx.fillStyle = "rgba(0, 0, 0, 0.72)"
-  ctx.fillRect(0, top, width, plateHeight)
+  const progress = Math.max(0, Math.min(1, view.fatalityProgress))
+  const boss = bossFor(view.bossNumber)
+  const centre = head
+    ? { x: (head.x + 0.5) * cell, y: (head.y + 0.5) * cell }
+    : { x: width / 2, y: height / 2 }
 
-  label(ctx, view.fatalityName, width / 2, height * 0.34, nameSize, "#f7768e", { spacing: 2 })
-  let y = height * 0.34 + 24
+  const animation = FATALITY_ANIMATIONS[view.fatalityId] || FATALITY_ANIMATIONS.mercy
+  animation(ctx, { boss, centre, cell, width, height, theme, progress })
+
+  // The name arrives once there has been something to watch, on a plate,
+  // because the boss died wherever it died and this has to be readable on top
+  // of whatever just happened to it.
+  if (progress < 0.3) return
+  const arrival = Math.min(1, (progress - 0.3) / 0.18)
+  // Along the bottom rather than across the middle: a boss dies wherever it
+  // was standing, and the middle is where its finishing move is happening.
+  const lines = wrap(ctx, view.fatalityFlavour, width - 80, 13)
+  const nameSize = Math.max(17, cell * 0.85)
+  const baseline = height - 18 - lines.length * 18
+  const plateTop = baseline - nameSize - 12
+  ctx.globalAlpha = arrival
+  ctx.fillStyle = "rgba(0, 0, 0, 0.78)"
+  ctx.fillRect(0, plateTop, width, height - plateTop)
+
+  label(ctx, view.fatalityName, width / 2, baseline, nameSize, "#f7768e", { spacing: 2 })
+  let y = baseline + 20
   for (const line of lines) {
     label(ctx, line, width / 2, y, 13, "white", { bold: false })
     y += 18
+  }
+  ctx.globalAlpha = 1
+}
+
+// --- finishing moves ---------------------------------------------------------
+//
+// One per combination. They are deliberately over the top: the whole point of
+// spending five seconds on a sequence is to be shown something for it.
+
+const bossBlock = (ctx, boss, x, y, size, radius) => fillRound(ctx, x - size / 2, y - size / 2, size, size, radius, boss.skin)
+
+const FATALITY_ANIMATIONS = {
+  // The board tears itself into bands, then goes the colour of a crash.
+  "kernel-panic": (ctx, { boss, centre, cell, width, height, progress }) => {
+    const violence = progress < 0.65 ? 1 : Math.max(0, 1 - (progress - 0.65) / 0.35)
+    const bands = 14
+    for (let i = 0; i < bands; ++i) {
+      const bandHeight = height / bands
+      const offset = (Math.random() - 0.5) * cell * 3 * violence
+      ctx.globalAlpha = 0.5 * violence
+      ctx.fillStyle = i % 3 === 0 ? "#ff4d4d" : i % 3 === 1 ? boss.skin : "#1e1e6e"
+      ctx.fillRect(offset, i * bandHeight, width, bandHeight * 0.5)
+    }
+    ctx.globalAlpha = 1
+
+    const shake = (Math.random() - 0.5) * cell * violence
+    bossBlock(ctx, boss, centre.x + shake, centre.y + shake, (cell - 2) * (1 - progress * 0.4), cell * 0.25)
+
+    if (progress > 0.55) {
+      ctx.globalAlpha = Math.min(0.92, (progress - 0.55) / 0.2)
+      ctx.fillStyle = "#1e1e6e"
+      ctx.fillRect(0, 0, width, height)
+      ctx.globalAlpha = 1
+      const rows = 5
+      for (let i = 0; i < rows; ++i) {
+        const line = Array.from({ length: 18 }, () => Math.floor(Math.random() * 16).toString(16)).join("")
+        label(ctx, `0x${line}`, width / 2, height * 0.62 + i * 15, 11, "#9fb3ff", { bold: false })
+      }
+    }
+  },
+
+  // It comes apart into two versions of itself, and neither one wins.
+  "merge-conflict": (ctx, { boss, centre, cell, width, theme, progress }) => {
+    const drift = progress * cell * 4.5
+    const size = (cell - 2) * (1 - progress * 0.25)
+    ctx.globalAlpha = 1 - progress * 0.5
+    bossBlock(ctx, boss, centre.x - drift, centre.y, size, cell * 0.25)
+    bossBlock(ctx, boss, centre.x + drift, centre.y, size, cell * 0.25)
+    ctx.globalAlpha = 1
+
+    // Conflict markers, opening up between the two halves.
+    const gap = Math.max(12, cell * 0.5)
+    ctx.globalAlpha = Math.min(1, progress * 2.2)
+    label(ctx, "<<<<<<< HEAD", centre.x, centre.y - gap, Math.max(10, cell * 0.4), theme.foreground, { bold: false })
+    label(ctx, "=======", centre.x, centre.y + 4, Math.max(10, cell * 0.4), "#ff4d4d", { bold: false })
+    label(ctx, ">>>>>>> them", centre.x, centre.y + gap + 4, Math.max(10, cell * 0.4), theme.foreground, { bold: false })
+    ctx.globalAlpha = 1
+  },
+
+  // Swept up and taken away, with no live references left to argue.
+  "garbage-collected": (ctx, { boss, centre, cell, theme, progress }) => {
+    // Everything spirals inwards and is carried off upwards.
+    const lift = cell * 5 * progress
+    for (let i = 0; i < 22; ++i) {
+      const phase = (progress * 1.6 + i / 22) % 1
+      const angle = i * 2.4 + progress * 6
+      const radius = cell * 2.8 * (1 - phase)
+      const x = centre.x + Math.cos(angle) * radius
+      const y = centre.y + Math.sin(angle) * radius - lift * phase
+      ctx.globalAlpha = (1 - phase) * 0.85
+      ctx.fillStyle = i % 2 === 0 ? boss.skin : theme.accent
+      ctx.beginPath()
+      ctx.arc(x, y, Math.max(1.5, cell * 0.1 * (1 - phase)), 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.globalAlpha = 1
+
+    ctx.save()
+    ctx.translate(centre.x, centre.y - lift)
+    ctx.rotate(progress * Math.PI * 3)
+    const size = (cell - 2) * Math.max(0, 1 - progress)
+    fillRound(ctx, -size / 2, -size / 2, size, size, cell * 0.25, boss.skin)
+    ctx.restore()
+  },
+
+  // Popped one frame at a time, politely, in order.
+  "stack-unwound": (ctx, { boss, centre, cell, theme, progress }) => {
+    const frames = 6
+    for (let i = 0; i < frames; ++i) {
+      const popAt = i / frames
+      const size = cell - 2
+      if (progress < popAt) {
+        // Still on the stack, waiting its turn.
+        ctx.globalAlpha = 0.85
+        fillRound(ctx, centre.x - size / 2, centre.y - size / 2 - i * (size + 3), size, size, cell * 0.2,
+          i === 0 ? boss.skin : boss.dark)
+        ctx.lineWidth = 1
+        ctx.strokeStyle = theme.foreground
+        ctx.stroke()
+      } else {
+        // Popped: rising and fading out of the frame.
+        const flight = Math.min(1, (progress - popAt) * 3)
+        ctx.globalAlpha = (1 - flight) * 0.9
+        const y = centre.y - i * (size + 3) - flight * cell * 6
+        fillRound(ctx, centre.x - size / 2 + (i % 2 ? 1 : -1) * flight * cell, y - size / 2, size, size, cell * 0.2, boss.dark)
+      }
+    }
+    ctx.globalAlpha = 1
+  },
+
+  // Blasted off the board, history rewritten behind it.
+  "force-pushed": (ctx, { boss, centre, cell, width, height, theme, progress }) => {
+    const eased = progress * progress
+    const x = centre.x + eased * width
+    // Shockwave from where it was standing.
+    for (let ring = 0; ring < 3; ++ring) {
+      const phase = Math.max(0, Math.min(1, progress * 1.6 - ring * 0.18))
+      if (phase <= 0 || phase >= 1) continue
+      ctx.globalAlpha = (1 - phase) * 0.8
+      ctx.beginPath()
+      ctx.arc(centre.x, centre.y, phase * cell * 7, 0, Math.PI * 2)
+      ctx.strokeStyle = theme.accent
+      ctx.lineWidth = Math.max(2, cell * 0.14)
+      ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+
+    // Motion trails, thinning out behind it.
+    for (let i = 6; i >= 0; --i) {
+      const trailX = x - i * cell * 0.9
+      if (trailX < -cell) continue
+      ctx.globalAlpha = (1 - i / 7) * (1 - progress * 0.4)
+      const size = (cell - 2) * (1 - i * 0.07)
+      bossBlock(ctx, boss, trailX, centre.y, size, cell * 0.25)
+    }
+    ctx.globalAlpha = 1
+
+    if (progress > 0.72) {
+      ctx.globalAlpha = Math.min(1, (progress - 0.72) / 0.2)
+      label(ctx, "+ forced update", width / 2, height * 0.72, Math.max(11, cell * 0.44), theme.muted, { bold: false })
+      ctx.globalAlpha = 1
+    }
+  },
+
+  // Nothing happens, at length.
+  mercy: (ctx, { boss, centre, cell, theme, progress }) => {
+    const sag = Math.min(1, progress * 1.2)
+    const size = (cell - 2) * (1 - sag * 0.55)
+    ctx.globalAlpha = 1 - sag * 0.5
+    fillRound(ctx, centre.x - size / 2, centre.y - size / 2 + sag * cell * 0.4, size, size * (1 - sag * 0.3), cell * 0.25, boss.skin)
+    ctx.globalAlpha = 1
+    if (progress > 0.25) {
+      ctx.globalAlpha = Math.min(1, (progress - 0.25) * 3) * 0.8
+      label(ctx, ". . .", centre.x, centre.y - cell * 1.1, Math.max(12, cell * 0.6), theme.muted, { bold: false })
+      ctx.globalAlpha = 1
+    }
   }
 }
 

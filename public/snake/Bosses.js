@@ -78,26 +78,31 @@ export const bossFor = number => bosses[(Math.max(1, number) - 1) % bosses.lengt
 // only the tail of the sequence has to be right.
 export const FATALITIES = [
   {
+    id: "kernel-panic",
     keys: ["up", "up", "down", "down"],
     name: "KERNEL PANIC",
     flavour: "It stopped responding, then it just stopped."
   },
   {
+    id: "merge-conflict",
     keys: ["left", "right", "left", "right"],
     name: "MERGE CONFLICT",
     flavour: "Both versions were kept. Neither survived."
   },
   {
+    id: "garbage-collected",
     keys: ["down", "down", "up", "up"],
     name: "GARBAGE COLLECTED",
     flavour: "No live references remained."
   },
   {
+    id: "stack-unwound",
     keys: ["left", "left", "right", "right"],
     name: "STACK UNWOUND",
     flavour: "Every frame popped, in order, politely."
   },
   {
+    id: "force-pushed",
     keys: ["up", "down", "left", "right"],
     name: "FORCE PUSHED",
     flavour: "History was rewritten. Its history."
@@ -106,6 +111,7 @@ export const FATALITIES = [
 
 // Running out of time is a finish too. It is simply a worse one.
 export const MERCY = {
+  id: "mercy",
   name: "MERCY",
   flavour: "You hesitated. It has been logged."
 }

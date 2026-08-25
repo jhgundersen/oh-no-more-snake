@@ -754,6 +754,12 @@ export class Game {
     return this.finishRemainingMs / FINISH_WINDOW_MS
   }
 
+  // Runs 0 to 1 across the finishing move, which is what the animation for it
+  // is drawn from.
+  get fatalityProgress() {
+    return 1 - this.fatalityRemainingMs / FATALITY_MS
+  }
+
   moveSnakeEater() {
     if (!hasSnakeEater(this.displayedLevel, this.endlessMode) || !this.snake.length) return
     if (this.snakeEater.x < 0) {

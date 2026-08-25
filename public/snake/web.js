@@ -918,7 +918,9 @@ function frame(now) {
     fatalities: FATALITIES,
     finisherInputs: game.finisherInputs,
     fatalityName: game.fatality?.name || "",
-    fatalityFlavour: game.fatality?.flavour || ""
+    fatalityFlavour: game.fatality?.flavour || "",
+    fatalityId: game.fatality?.id || "mercy",
+    fatalityProgress: game.fatalityProgress
   })
   if (fx.partySplashOpacity > 0) {
     splashCanvas.hidden = false
