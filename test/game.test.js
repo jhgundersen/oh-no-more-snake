@@ -369,7 +369,7 @@ test("the boss steps towards its target without eating itself", () => {
   assert.equal(nextBossStep(boss, { x: 1, y: 5 }, walled, false), null)
 })
 
-test("a duel is won a segment at a time, and only from the tail", () => {
+test("only the boss's head is dangerous", () => {
   const game = fresh()
   game.score = scoreForLevel(10)
   game.displayedLevel = 10
@@ -379,13 +379,68 @@ test("a duel is won a segment at a time, and only from the tail", () => {
   assert.equal(game.boss.length, bossLength(1))
   assert.equal(game.bossHealth, 1)
 
-  // Ramming the middle of it is fatal; taking the tail is not.
-  const body = game.boss[2]
-  game.snake = [{ x: body.x, y: body.y + 1 }, { x: body.x - 1, y: body.y + 1 }, { x: body.x - 2, y: body.y + 1 }]
+  const bossHead = game.boss[0]
+  game.snake = [
+    { x: bossHead.x, y: bossHead.y + 1 },
+    { x: bossHead.x - 1, y: bossHead.y + 1 },
+    { x: bossHead.x - 2, y: bossHead.y + 1 }
+  ]
   game.direction = { x: 0, y: -1 }
   game.food = { x: 1, y: 14 }
   game.tick()
-  assert.ok(game.gameOver, "the boss's body is a wall")
+  assert.ok(game.gameOver, "swimming into its jaws is still fatal")
+})
+
+test("a bite through the middle cuts the boss in two", () => {
+  const game = fresh()
+  game.displayedLevel = 10
+  game.spawnBoss()
+  const length = game.boss.length
+  const middle = 3
+
+  game.biteBoss(game.boss[middle], middle)
+  assert.equal(game.boss.length, middle, "the head keeps what was in front of the bite")
+  assert.equal(game.husks.length, 1)
+  assert.equal(game.husks[0].cells.length, length - middle - 1, "and the rest is left behind")
+  assert.equal(game.bossPhase, "fight")
+
+  // Biting a husk in the middle splits that too.
+  game.biteHusk({ x: 0, y: 0 }, 0, 1)
+  assert.equal(game.husks.length, 2)
+  // Biting the last cell of a one-cell husk removes it entirely.
+  const single = game.husks.findIndex(husk => husk.cells.length === 1)
+  if (single >= 0) {
+    game.biteHusk({ x: 0, y: 0 }, single, 0)
+    assert.ok(!game.husks.some(husk => husk.cells.length === 0), "nothing empty is kept")
+  }
+})
+
+test("a husk drifts, and never through the boss or the snake", () => {
+  const game = fresh()
+  game.displayedLevel = 10
+  game.endlessMode = false
+  game.boss = [{ x: 5, y: 5 }, { x: 6, y: 5 }]
+  game.snake = [{ x: 1, y: 1 }, { x: 1, y: 2 }, { x: 1, y: 3 }]
+  game.husks = [{ cells: [{ x: 10, y: 10 }, { x: 11, y: 10 }], direction: { x: -1, y: 0 }, pace: 1 }]
+  const before = JSON.stringify(game.husks[0].cells)
+  game.moveHusks() // pace becomes 2: an even tick, so it drifts
+  assert.notEqual(JSON.stringify(game.husks[0].cells), before)
+  assert.equal(game.husks[0].cells.length, 2, "it does not grow or shrink by drifting")
+
+  // Boxed in against the boss and solid walls, it holds its ground rather
+  // than walking through either.
+  game.wallsWrap = false
+  game.husks = [{ cells: [{ x: 0, y: 0 }], direction: { x: -1, y: 0 }, pace: 1 }]
+  game.boss = [{ x: 1, y: 0 }, { x: 2, y: 0 }]
+  game.snake = [{ x: 0, y: 1 }, { x: 0, y: 2 }, { x: 0, y: 3 }]
+  game.moveHusks()
+  assert.deepEqual(game.husks[0].cells, [{ x: 0, y: 0 }])
+
+  // With wrapping borders the same corner is not a corner at all.
+  game.wallsWrap = true
+  game.husks[0].pace = 1
+  game.moveHusks()
+  assert.deepEqual(game.husks[0].cells, [{ x: COLUMNS - 1, y: 0 }])
 })
 
 test("eating the boss down to its head calls for a finish, and winning clears the level", () => {

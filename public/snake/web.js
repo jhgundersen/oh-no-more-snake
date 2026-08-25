@@ -232,6 +232,13 @@ function startSplash(kind) {
   fx.splashKind = kind
   fx.partySplashOpacity = 0
   fx.partySplashScale = 0.78
+  // A boss card has a name, an epithet and a face to take in. A track name
+  // does not, so it keeps the shorter original timing.
+  const boss = kind === "boss"
+  splashHold.duration = boss ? 2100 : 430
+  splashFadeIn.duration = boss ? 190 : 130
+  splashFadeOut.duration = boss ? 560 : 430
+  splashGrow.duration = splashFadeIn.duration + splashHold.duration + splashFadeOut.duration
   splashHold.stop()
   splashFadeOut.stop()
   splashFadeIn.restart()

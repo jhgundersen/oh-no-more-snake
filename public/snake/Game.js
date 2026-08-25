@@ -316,6 +316,9 @@ export class Game {
     this.frenzyFoods = []
 
     this.boss = []
+    // Pieces bitten off the middle of a boss. They have no head, so they
+    // wander, and every one of them is edible.
+    this.husks = []
     this.bossPhase = "none"
     this.bossStartLength = 0
     this.bossPace = 0
@@ -399,6 +402,18 @@ export class Game {
     return Math.max(0, (this.boss.length - 1) / Math.max(1, this.bossStartLength - 1))
   }
 
+  findHusk(cell) {
+    for (let husk = 0; husk < this.husks.length; ++husk) {
+      const index = this.husks[husk].cells.findIndex(part => same(part, cell))
+      if (index >= 0) return { husk, cell: index }
+    }
+    return null
+  }
+
+  get huskCells() {
+    return this.husks.flatMap(husk => husk.cells)
+  }
+
   get bossTail() {
     return this.boss.length > 1 ? this.boss[this.boss.length - 1] : { ...NOWHERE }
   }
@@ -459,6 +474,7 @@ export class Game {
       for (let x = 0; x < COLUMNS; ++x) {
         const p = point(x, y)
         if (this.isObstacle(p) || has(this.snake, p) || has(this.boss, p)) continue
+        if (this.husks.length && has(this.huskCells, p)) continue
         if (except !== "food" && same(p, this.food)) continue
         if (except !== "discoBall" && same(p, this.discoBall)) continue
         if (same(p, this.snakeEater) || same(p, this.reverseVenom) || same(p, this.frenzyPickup)) continue
@@ -549,6 +565,9 @@ export class Game {
 
   spawnBoss() {
     this.boss = []
+    // Pieces bitten off the middle of a boss. They have no head, so they
+    // wander, and every one of them is edible.
+    this.husks = []
     this.bossPhase = "none"
     this.bossStartLength = 0
     this.bossPace = 0
@@ -579,7 +598,7 @@ export class Game {
     if (bossNumber(this.displayedLevel) <= 2 && this.bossPace % 3 === 0) return
 
     const tail = this.snake[this.snake.length - 1]
-    const blocked = this.snake.slice(0, Math.max(0, this.snake.length - 1))
+    const blocked = [...this.snake.slice(0, Math.max(0, this.snake.length - 1)), ...this.huskCells]
     const step = nextBossStep(this.boss, tail, blocked, this.wallsWrap)
     if (!step) return
 
@@ -595,11 +614,16 @@ export class Game {
     this.boss.pop()
   }
 
-  biteBoss(head) {
-    if (this.gameOver || this.boss.length < 2) return
-    this.boss.pop()
+  // Bites one segment out of the boss. Taking it from the tail simply
+  // shortens it; taking it from the middle cuts it in two, and everything
+  // beyond the bite is left behind as a husk. Only the head is off the menu.
+  biteBoss(head, index = this.boss.length - 1) {
+    if (this.gameOver || this.boss.length < 2 || index <= 0) return
+    const behind = this.boss.slice(index + 1)
+    this.boss = this.boss.slice(0, index)
+    if (behind.length) this.addHusk(behind)
     this.awardPoints(1)
-    this.emit("bossBitten", head.x, head.y, this.boss.length)
+    this.emit("bossBitten", head.x, head.y, this.boss.length, behind.length > 0)
     if (this.boss.length <= 1) {
       this.bossPhase = BOSS_FINISH
       this.finishRemainingMs = FINISH_WINDOW_MS
@@ -607,6 +631,67 @@ export class Game {
       this.emit("bossFinishReady")
       this.emit("statusChanged")
     }
+  }
+
+  addHusk(cells) {
+    if (!cells.length) return
+    this.husks.push({ cells, direction: this.randomDirection(), pace: 0 })
+  }
+
+  randomDirection() {
+    const directions = [point(1, 0), point(-1, 0), point(0, 1), point(0, -1)]
+    return directions[Math.floor(this.random() * directions.length)]
+  }
+
+  // A husk is all body, so any part of it can be taken, and taking a middle
+  // one splits it again.
+  biteHusk(head, huskIndex, cellIndex) {
+    if (this.gameOver) return
+    const husk = this.husks[huskIndex]
+    const front = husk.cells.slice(0, cellIndex)
+    const behind = husk.cells.slice(cellIndex + 1)
+    this.husks.splice(huskIndex, 1)
+    if (front.length) this.addHusk(front)
+    if (behind.length) this.addHusk(behind)
+    this.awardPoints(1)
+    this.emit("bossBitten", head.x, head.y, this.boss.length, false)
+  }
+
+  // Headless and aimless: it keeps going until something is in the way, then
+  // tries another direction. Half speed, so it reads as drifting.
+  moveHusks() {
+    if (!this.husks.length) return
+    const solid = [...this.boss, ...this.snake]
+    for (const husk of this.husks) {
+      if (++husk.pace % 2 !== 0) continue
+      const options = [husk.direction, ...this.shuffledDirections()]
+      for (const direction of options) {
+        const next = point(husk.cells[0].x + direction.x, husk.cells[0].y + direction.y)
+        if (this.wallsWrap) {
+          next.x = (next.x + COLUMNS) % COLUMNS
+          next.y = (next.y + ROWS) % ROWS
+        } else if (next.x < 0 || next.x >= COLUMNS || next.y < 0 || next.y >= ROWS) {
+          continue
+        }
+        if (this.isObstacle(next) || has(solid, next)) continue
+        if (has(husk.cells.slice(0, husk.cells.length - 1), next)) continue
+        husk.direction = direction
+        husk.cells.unshift(next)
+        husk.cells.pop()
+        break
+      }
+    }
+  }
+
+  shuffledDirections() {
+    const directions = [point(1, 0), point(-1, 0), point(0, 1), point(0, -1)]
+    for (let i = directions.length - 1; i > 0; --i) {
+      const j = Math.floor(this.random() * (i + 1))
+      const swap = directions[i]
+      directions[i] = directions[j]
+      directions[j] = swap
+    }
+    return directions
   }
 
   // A direction pressed while the boss is down is a finisher input, not
@@ -650,6 +735,10 @@ export class Game {
   defeatBoss() {
     const cleared = this.displayedLevel
     this.boss = []
+    this.husks = []
+    // Pieces bitten off the middle of a boss. They have no head, so they
+    // wander, and every one of them is edible.
+    this.husks = []
     this.bossPhase = "none"
     this.score = Math.max(this.score, scoreForLevel(cleared + 1))
     this.pendingGrowth = 0
@@ -825,10 +914,13 @@ export class Game {
     }
 
     const eats = same(head, this.food)
-    // The boss is beaten one segment at a time, from the tail. Its body is a
-    // wall, so this has to be aimed rather than charged.
-    const bitesBoss = this.boss.length > 1 && same(head, this.bossTail)
-    const hitsBossBody = !bitesBoss && has(this.boss, head)
+    // The boss is beaten a segment at a time. Only its head is dangerous —
+    // everything behind it is food, and a bite through the middle cuts it in
+    // two rather than ending the run.
+    const bossIndex = this.boss.findIndex(cell => same(cell, head))
+    const bitesBoss = bossIndex > 0
+    const hitsBossHead = bossIndex === 0
+    const huskHit = this.findHusk(head)
     const hitsDiscoBall = same(head, this.discoBall)
     const hitsSnakeEater = same(head, this.snakeEater)
     const hitsReverseVenom = same(head, this.reverseVenom)
@@ -846,14 +938,15 @@ export class Game {
         break
       }
     }
-    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf || hitsBossBody) {
+    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf || hitsBossHead) {
       this.finish()
       return
     }
 
     this.snake.unshift(head)
 
-    if (bitesBoss) this.biteBoss(head)
+    if (bitesBoss) this.biteBoss(head, bossIndex)
+    else if (huskHit) this.biteHusk(head, huskHit.husk, huskHit.cell)
 
     if (hitsSnakeEater) {
       this.snakeEater = { ...NOWHERE }
@@ -935,6 +1028,7 @@ export class Game {
     if (!this.levelTransition) {
       this.moveSnakeEater()
       this.moveBoss()
+      this.moveHusks()
     }
     this.emit("boardChanged")
   }

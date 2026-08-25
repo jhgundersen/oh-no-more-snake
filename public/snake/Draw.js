@@ -34,6 +34,62 @@ const fillRound = (ctx, x, y, width, height, radius, style) => {
   ctx.fill()
 }
 
+// Eyes, facing the way the thing is going. The snake's are wide and friendly;
+// a boss's are narrow, red and unimpressed. They are the fastest way to tell
+// at a glance which end of something is the end that matters.
+function drawFace(ctx, { x, y, size, direction, angry }) {
+  const forward = direction && (direction.x || direction.y) ? direction : { x: 1, y: 0 }
+  // Across the direction of travel, so the pair always sits side by side.
+  const across = { x: -forward.y, y: forward.x }
+  const centreX = x + size / 2 + forward.x * size * 0.1
+  const centreY = y + size / 2 + forward.y * size * 0.1
+  const spread = size * 0.21
+  const white = angry ? size * 0.17 : size * 0.21
+  const outline = Math.max(1, size * 0.05)
+
+  for (const side of [-1, 1]) {
+    const ex = centreX + across.x * spread * side
+    const ey = centreY + across.y * spread * side
+
+    // The ring matters as much as the fill: the snake's head is already the
+    // palest thing on the board, and a white eye on it would be no eye at all.
+    ctx.beginPath()
+    ctx.arc(ex, ey, white, 0, Math.PI * 2)
+    ctx.fillStyle = angry ? "#ff4d4d" : "#ffffff"
+    ctx.fill()
+    ctx.lineWidth = outline
+    ctx.strokeStyle = "rgba(16, 16, 20, 0.9)"
+    ctx.stroke()
+
+    ctx.beginPath()
+    if (angry) {
+      // A vertical slit, the way a snake that means it looks at you.
+      ctx.ellipse(ex, ey, white * 0.3, white * 0.72, Math.atan2(across.y, across.x), 0, Math.PI * 2)
+    } else {
+      // Pupils cast slightly ahead, which is most of what makes it friendly.
+      ctx.arc(ex + forward.x * size * 0.045, ey + forward.y * size * 0.045, white * 0.52, 0, Math.PI * 2)
+    }
+    ctx.fillStyle = "#101014"
+    ctx.fill()
+
+    if (!angry) continue
+
+    // A short brow in front of each eye, its inner end pushed furthest
+    // forward. Two of them make the V that reads as a scowl.
+    const innerX = ex - across.x * white * 0.15 * side + forward.x * white * 1.5
+    const innerY = ey - across.y * white * 0.15 * side + forward.y * white * 1.5
+    const outerX = ex + across.x * white * 1.1 * side + forward.x * white * 0.7
+    const outerY = ey + across.y * white * 1.1 * side + forward.y * white * 0.7
+    ctx.beginPath()
+    ctx.moveTo(innerX, innerY)
+    ctx.lineTo(outerX, outerY)
+    ctx.strokeStyle = "#101014"
+    ctx.lineWidth = Math.max(1.2, size * 0.09)
+    ctx.lineCap = "round"
+    ctx.stroke()
+  }
+}
+
 // A glyph centred in one cell, the way a QML Text sized to the cell centres it.
 function glyph(ctx, text, cellX, cellY, cell, size, color, family = "sans-serif") {
   ctx.font = `${size}px ${family}`
@@ -142,7 +198,9 @@ export function draw(ctx, view) {
 
   // --- the boss ---
 
+  if (game.husks.length) drawHusks(ctx, view)
   if (game.boss.length) drawBoss(ctx, view)
+  if (game.bossPhase === "fight" && !game.gameOver && game.running) drawEatHim(ctx, view, width)
 
   // --- the snake ---
 
@@ -163,12 +221,14 @@ export function draw(ctx, view) {
     const size = cell - 2
     if (dance === 0) {
       fillRound(ctx, x, y, size, size, radius, color)
+      if (index === 0) drawFace(ctx, { x, y, size, direction: game.direction, angry: false })
       return
     }
     ctx.save()
     ctx.translate(x + size / 2, y + size / 2)
     ctx.rotate((dance * 5.5 * Math.PI) / 180)
     fillRound(ctx, -size / 2, -size / 2, size, size, radius, color)
+    if (index === 0) drawFace(ctx, { x: -size / 2, y: -size / 2, size, direction: game.direction, angry: false })
     ctx.restore()
   })
   ctx.globalAlpha = 1
@@ -386,15 +446,44 @@ function drawBoss(ctx, view) {
     }
 
     if (head) {
-      // Two eyes, so it is obvious which end is coming for you.
-      const eye = Math.max(1.5, cell * 0.11)
-      ctx.fillStyle = "#101014"
-      ctx.beginPath()
-      ctx.arc(x + size * 0.33, y + size * 0.36, eye, 0, Math.PI * 2)
-      ctx.arc(x + size * 0.67, y + size * 0.36, eye, 0, Math.PI * 2)
-      ctx.fill()
+      // The dangerous end, and the only part of a boss that still kills you.
+      const facing = game.boss.length > 1
+        ? { x: Math.sign(segment.x - game.boss[1].x), y: Math.sign(segment.y - game.boss[1].y) }
+        : { x: -1, y: 0 }
+      drawFace(ctx, { x, y, size, direction: facing, angry: true })
     }
   })
+  ctx.globalAlpha = 1
+}
+
+// The severed pieces. No head, no eyes, no threat — just something wriggling
+// about that happens to be worth a point each.
+function drawHusks(ctx, view) {
+  const { game, fx, cell } = view
+  const boss = bossFor(view.bossNumber)
+  const radius = Math.max(2, cell * 0.22)
+  const size = cell - 2
+  const wobble = Math.sin(performance.now() / 260)
+
+  ctx.globalAlpha = fx.boardContentOpacity * 0.85
+  for (const husk of game.husks) {
+    husk.cells.forEach((segment, index) => {
+      const drift = wobble * (index % 2 === 0 ? 1 : -1) * cell * 0.06
+      fillRound(ctx, segment.x * cell + 1, segment.y * cell + 1 + drift, size, size, radius, boss.dark)
+      ctx.lineWidth = 1
+      ctx.strokeStyle = rgba(parseHex(boss.skin), 0.5)
+      ctx.stroke()
+    })
+  }
+  ctx.globalAlpha = 1
+}
+
+// Says what to do, in the same voice the finish will use.
+function drawEatHim(ctx, view, width) {
+  const { theme, cell } = view
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 520)
+  ctx.globalAlpha = 0.3 + pulse * 0.3
+  label(ctx, "EAT HIM!", width / 2, Math.max(18, cell * 1.1), Math.max(13, cell * 0.62), theme.foreground, { spacing: 2 })
   ctx.globalAlpha = 1
 }
 

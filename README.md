@@ -113,10 +113,12 @@ and before they start again — narrower, faster and worth more — a rival snak
 turns up in an empty arena, announced by name and portrait the way Party Mode
 announces itself.
 
-Both snakes hunt the same thing: each other's tail. Take a segment off the boss
-by touching its tail with your head, and it takes one off you the same way.
-Its body is a wall, so this is aimed, not charged. There is no timer and no way
-to lose length below three, so a duel can be taken slowly.
+Eat him. Only the boss's head is dangerous — everything behind it is food.
+Take a bite out of its tail and it simply gets shorter; take one out of its
+middle and it comes apart, leaving a headless piece to drift around the arena
+until you eat that too. The boss meanwhile hunts your tail and takes segments
+off you the same way. There is no timer and no way to lose length below three,
+so a duel can be taken slowly.
 
 When only its head is left, everything stops for **FINISH HIM!** and five
 seconds to press one of these:
@@ -135,7 +137,9 @@ cleared, and whatever was scored during the fight is kept on top.
 
 The six bosses cycle: Null Pointer, Segfault, Deadlock, Stack Overflow, Race
 Condition and Memory Leak. Their portraits are drawn rather than loaded, so
-they cost nothing to download and sit correctly in every theme.
+they cost nothing to download and sit correctly in every theme. You can tell
+the two snakes apart at a glance without reading anything: yours has wide
+friendly eyes, and a boss has narrow red ones under a scowl.
 
 ## Charts
 

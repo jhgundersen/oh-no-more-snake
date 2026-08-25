@@ -92,6 +92,13 @@ These come from the Qt version and hold here too.
 - A boss level is cleared by winning, not by scoring, so `level` is pinned to
   `displayedLevel` for the duration. Without that a lucky run of apples during
   a duel starts the next level on top of the boss.
+- Only a boss's head is lethal. Its body splits when bitten, and what comes
+  off becomes a headless husk that drifts and can be eaten too. That is the
+  difficulty valve for the whole fight: if a duel is too hard, this is the
+  dial, not the boss's speed.
+- Eyes are how the two snakes are told apart, not colour: wide and friendly on
+  the snake, narrow and red under a brow on a boss. They face the direction of
+  travel, which is also what makes the head readable at a glance.
 - Nothing a run did not earn may reach a best score or the charts.
   `jumpToLevel` sets `practiceRun`, and both `finish()` and the chart
   submission check it.
