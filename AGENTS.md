@@ -97,8 +97,8 @@ These come from the Qt version and hold here too.
   Gates were removed because they appeared under a moving snake and ended runs
   that had done nothing wrong. `beatWindowMs` stays — Beat Eater, Perfect
   Timing and Dance Floor all read it — but nothing it opens may be lethal.
-- Levels come in sets of five, named `set-position`: 1-1 to 1-4 are boards and
-  1-5 is a duel. `layoutOrdinal` counts past the bosses and past 1-1, which is
+- Levels come in sets of five, named `set.position`: 1.1 to 1.4 are boards and
+  1.5 is a duel. `layoutOrdinal` counts past the bosses and past 1.1, which is
   empty on purpose. Difficulty rides on `difficultyOf` — the set number, and
   nothing else — while the board shape rides on the layout ordinal, so variety
   and difficulty can be tuned without disturbing each other.
@@ -134,9 +134,11 @@ These come from the Qt version and hold here too.
 - Eyes are how the two snakes are told apart, not colour: wide and friendly on
   the snake, narrow and red under a brow on a boss. They face the direction of
   travel, which is also what makes the head readable at a glance.
-- The `g` jump is local-only and must stay that way. No query parameter, no
-  stored flag, nothing that can be typed into a deployed URL — reaching a boss
-  without playing to it is also reaching a score without playing for it.
+- Every way of skipping levels — the `g` key, the **go to** strip, `?level=`
+  and `omasnake.jumpTo` — hangs off the single `debugKeys` gate and must keep
+  doing so. Reaching a level without playing to it is also reaching a score
+  without playing for it, which is why `jumpToLevel` marks the run as practice
+  as well. Two locks, deliberately.
 - Nothing a run did not earn may reach a best score or the charts.
   `jumpToLevel` sets `practiceRun`, and both `finish()` and the chart
   submission check it.

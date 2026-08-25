@@ -14,6 +14,7 @@ import {
   bossLength,
   bossNumber,
   hasBall,
+  levelFromName,
   levelName,
   positionInSet,
   setOf,
@@ -273,9 +274,25 @@ test("endless mode holds one speed and levels quicken by set", () => {
 })
 
 test("levels are named for where they sit in their set", () => {
-  assert.deepEqual([1, 4, 5, 6, 10, 11].map(levelName), ["1-1", "1-4", "1-5", "2-1", "2-5", "3-1"])
+  assert.deepEqual([1, 4, 5, 6, 10, 11].map(levelName), ["1.1", "1.4", "1.5", "2.1", "2.5", "3.1"])
   assert.equal(setOf(7), 2)
   assert.equal(positionInSet(7), 2)
+})
+
+test("a level can be asked for by name", () => {
+  // Written the way it is displayed, the way it used to be, or plainly.
+  assert.equal(levelFromName("3.2"), 12)
+  assert.equal(levelFromName("3-2"), 12)
+  assert.equal(levelFromName("12"), 12)
+  assert.equal(levelFromName("  4.3 "), 18)
+  assert.equal(levelName(levelFromName("1.5")), "1.5")
+
+  // A position past the end of a set is clamped rather than spilling over.
+  assert.equal(levelFromName("2.9"), levelFromName("2.5"))
+
+  // And nonsense is nothing at all, so a typo does nothing.
+  for (const junk of ["banana", "", "-4", "0", null, undefined])
+    assert.equal(levelFromName(junk), null, `accepted ${JSON.stringify(junk)}`)
 })
 
 test("borders wrap until told otherwise", () => {

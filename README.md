@@ -40,9 +40,12 @@ the filesystem will not work.
 - `t` — cycle the theme
 - `v` — fullscreen
 - `c` — charts
-- `g` — jump to the next boss level. Local development only: it does not exist
-  on the deployed game, and a run that used it is never charted and never sets
-  a best score.
+- `g` — jump to the next boss level. Local development only.
+
+Development also gets a **go to** box under the buttons and a `?level=` query
+parameter, both taking a name (`3.2`), the same with a dash, or a plain level
+number. None of it exists on the deployed game, and a run that used any of it
+is never charted and never sets a best score.
 - Escape — leave fullscreen, or pause
 
 On a touchscreen, drag on the board to steer and tap it to cycle the food skin.
@@ -55,8 +58,8 @@ explicit no, so the parameter can be templated in as a variable.
 
 ## How it plays
 
-Levels runs in sets of five: four boards and a duel, named 1-1 to 1-5, then 2-1
-onwards. 1-1 is deliberately empty; after that there are twelve board shapes,
+Levels runs in sets of five: four boards and a duel, named 1.1 to 1.5, then 2.1
+onwards. 1.1 is deliberately empty; after that there are twelve board shapes,
 each drawn in four orientations, so nothing repeats for forty-eight levels —
 and by then the gaps have closed and it does not look like the same board
 anyway. Every set the tick gets 5 ms faster, down to a floor of 55 ms; every
@@ -123,8 +126,8 @@ unscored ball simply stays where it lies until the level ends.
 
 ## Boss fights
 
-Levels come in sets of five, named for where they sit: 1-1 through 1-4 are
-boards, 1-5 is a duel, then 2-1 begins again narrower, faster and worth more.
+Levels come in sets of five, named for where they sit: 1.1 through 1.4 are
+boards, 1.5 is a duel, then 2.1 begins again narrower, faster and worth more.
 The rival turns up in an empty arena, announced by name and portrait the way
 Party Mode announces itself.
 

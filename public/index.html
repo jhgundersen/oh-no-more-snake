@@ -424,6 +424,39 @@
 			color: var(--muted);
 		}
 
+		/* Development only, and deliberately plain: it is a tool, not a control. */
+		#dev {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 8px;
+			font-size: 11px;
+			color: var(--muted);
+		}
+
+		#dev input {
+			width: 5em;
+			padding: 3px 6px;
+			border-radius: 6px;
+			border: 1px solid var(--muted);
+			background: var(--play-area);
+			color: var(--fg);
+			font: inherit;
+			text-align: center;
+		}
+
+		#dev button {
+			height: 24px;
+			padding: 0 8px;
+			font-size: 11px;
+			border-radius: 6px;
+		}
+
+		#dev-note {
+			min-width: 14ch;
+			text-align: left;
+		}
+
 		/* Full-page, above everything, and never in the way of a click. */
 		#splash {
 			position: fixed;
@@ -499,6 +532,16 @@
 				<button type="button" id="view"></button>
 			</div>
 		</div>
+
+		<!-- Unhidden by web.js only when the page is being served locally.
+		     There is no way to reveal it on the deployed game. -->
+		<form id="dev" hidden>
+			<label for="dev-level">go to</label>
+			<input id="dev-level" name="level" type="text" inputmode="text" autocomplete="off"
+				placeholder="3.2" size="5" aria-label="Level to jump to">
+			<button type="submit">jump</button>
+			<span id="dev-note"></span>
+		</form>
 
 		<!-- Inside the stage, or fullscreen would render none of them: only the
 		     fullscreen element's own subtree is drawn. -->

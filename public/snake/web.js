@@ -4,7 +4,7 @@
 // not drawing. The animation constants, easing curves and the order effects
 // fire in are all from there, because they are what the game feels like.
 
-import { COLUMNS, ROWS, Game, bossNumber, levelName, nextBossLevel } from "./Game.js"
+import { COLUMNS, ROWS, Game, bossNumber, levelFromName, levelName, nextBossLevel } from "./Game.js"
 import { MusicController } from "./Audio.js"
 import { draw, drawBossSplash, drawSplash, boardSize } from "./Draw.js"
 import { FATALITIES, bossFor } from "./Bosses.js"
@@ -521,6 +521,8 @@ const STEERING = new Map([
 
 addEventListener("keydown", event => {
   if (event.ctrlKey || event.metaKey || event.altKey) return
+  // Typing a level is typing, not steering.
+  if (event.target instanceof HTMLInputElement) return
   // With the charts up, the board is not the thing being looked at. Escape is
   // left to the dialog, which closes on it by itself.
   if (chartsDialog.open) {
@@ -654,10 +656,35 @@ const debugKeys = location.hostname === "localhost"
   || location.protocol === "file:"
 
 function jumpToNextBoss() {
-  if (!debugKeys || game.endlessMode) return
-  const target = nextBossLevel(game.displayedLevel)
-  game.jumpToLevel(target)
-  announce(`Jumped to level ${target}, ${bossFor(bossNumber(target)).name}. This run will not be charted.`)
+  jumpTo(nextBossLevel(game.displayedLevel))
+}
+
+// Takes "3.2", "3-2", or a plain level number. Endless has no levels to go to,
+// so it switches out of it first, and the run is never charted afterwards.
+function jumpTo(target) {
+  if (!debugKeys) return false
+  const level = typeof target === "number" ? target : levelFromName(target)
+  if (!level) return false
+  if (game.endlessMode) game.toggleMode()
+  game.jumpToLevel(level)
+  const challenger = game.bossLevel ? `, ${bossFor(bossNumber(level)).name}` : ""
+  announce(`Jumped to level ${levelName(level)}${challenger}. This run will not be charted.`)
+  updateHud()
+  return true
+}
+
+// The strip exists only on a development machine, and the level in the URL is
+// read on the same terms.
+const devBar = el("dev")
+if (debugKeys) {
+  devBar.hidden = false
+  devBar.addEventListener("submit", event => {
+    event.preventDefault()
+    const wanted = el("dev-level").value
+    const level = levelFromName(wanted)
+    el("dev-note").textContent = jumpTo(wanted) ? `at ${levelName(level)}` : `${wanted || "that"}?`
+    el("dev-level").blur()
+  })
 }
 
 // --- charts ------------------------------------------------------------------
@@ -1030,6 +1057,12 @@ addEventListener("visibilitychange", () => {
 // first run of the page needs its token asking for by hand.
 charts.startRun()
 
+// ?level=3.2 drops straight onto a level, on the same development-only terms.
+if (debugKeys) {
+  const wanted = new URLSearchParams(location.search).get("level")
+  if (wanted) jumpTo(wanted)
+}
+
 applyTheme()
 if (fullParameter()) setFaux(true)
 resize()
@@ -1040,7 +1073,7 @@ requestAnimationFrame(now => {
 })
 
 // Handy from the console, and how the screenshot tool drives the page.
-globalThis.omasnake = { game, music, fx, charts, themes, setTheme: id => {
+globalThis.omasnake = { game, music, fx, charts, themes, jumpTo, setTheme: id => {
   const found = themes.find(candidate => candidate.id === id)
   if (!found) return false
   theme = resolve(found)

@@ -15,14 +15,29 @@ export const ROWS = 16
 const POINTS_PER_LEVEL = 12
 
 // Five levels to a set: four boards and then a duel. Levels are named for
-// where they sit — 1-1 through 1-5, then 2-1 — so the shape of a run is
+// where they sit — 1.1 through 1.5, then 2.1 — so the shape of a run is
 // legible without counting.
 export const LEVELS_PER_SET = 5
 export const setOf = level => Math.floor((Math.max(1, level) - 1) / LEVELS_PER_SET) + 1
 export const positionInSet = level => ((Math.max(1, level) - 1) % LEVELS_PER_SET) + 1
 export const isBossLevel = level => positionInSet(level) === LEVELS_PER_SET
 export const bossNumber = level => (isBossLevel(level) ? setOf(level) : 0)
-export const levelName = level => `${setOf(level)}-${positionInSet(level)}`
+export const levelName = level => `${setOf(level)}.${positionInSet(level)}`
+
+// Accepts a name a player would recognise ("3.2"), the same written with a
+// dash, or a plain level number. Returns null for anything else, so a typo
+// does nothing.
+export function levelFromName(name) {
+  const text = String(name ?? "").trim()
+  const pair = /^(\d+)\s*[-:.]\s*(\d+)$/.exec(text)
+  if (pair) {
+    const set = Math.max(1, Number(pair[1]))
+    const position = Math.min(LEVELS_PER_SET, Math.max(1, Number(pair[2])))
+    return (set - 1) * LEVELS_PER_SET + position
+  }
+  const absolute = Number(text)
+  return Number.isFinite(absolute) && absolute >= 1 ? Math.floor(absolute) : null
+}
 
 export function nextBossLevel(from) {
   let level = Math.max(1, Math.floor(from)) + 1
