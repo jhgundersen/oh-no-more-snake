@@ -69,10 +69,12 @@ const FATALITY_MS = 2400
 // long the boss spends backing off afterwards.
 const DIZZY_MS = 1100
 // Once kicked a ball never stops: it rolls until something turns it round or
-// it finds the net. It travels faster than a snake, which is what stops the
-// snake simply dribbling it — at the same speed the head catches it every tick
-// and steers it into the goal with no aim involved.
-const BALL_SPEED = 2
+// it finds the net. It goes at the snake's own pace, which is fast enough to
+// have to plan around and slow enough to read. Pushing it from behind cannot
+// steer it — turning breaks contact — so aiming still means getting in front.
+const BALL_SPEED = 1
+// A ball of about one cell across turns twice per cell it covers.
+const BALL_SPIN_PER_CELL = 2
 export const GOAL_BONUS = 5
 const BOSS_FLEE_TICKS = 8
 const COMBO_DURATION_MS = 2000
@@ -442,6 +444,7 @@ export class Game {
     this.frenzyFoods = []
     this.ball = { ...NOWHERE }
     this.ballDirection = { x: 0, y: 0 }
+    this.ballSpin = 0
     this.goal = { ...NOWHERE }
 
     this.boss = []
@@ -738,6 +741,7 @@ export class Game {
     this.ball = { ...NOWHERE }
     this.goal = { ...NOWHERE }
     this.ballDirection = { x: 0, y: 0 }
+    this.ballSpin = 0
     if (this.endlessMode || !hasBall(this.displayedLevel)) return
 
     const free = this.freeCells()
@@ -756,8 +760,11 @@ export class Game {
   // Kicked in whatever direction the snake was going, which is the only way to
   // change where it is headed: catch it side-on and it turns.
   kickBall(direction) {
+    // Being nudged along the way it was already going is not a kick, and
+    // should not spark or count as one.
+    const turned = direction.x !== this.ballDirection.x || direction.y !== this.ballDirection.y
     this.ballDirection = { x: direction.x, y: direction.y }
-    this.emit("ballKicked", this.ball.x, this.ball.y)
+    if (turned) this.emit("ballKicked", this.ball.x, this.ball.y)
   }
 
   // Two cells a tick, stepped one at a time so a fast ball cannot jump a wall.
@@ -790,6 +797,8 @@ export class Game {
     if (inTheWay) return this.bounceBall()
 
     this.ball = next
+    // Rolling right or down turns it one way, left or up the other.
+    this.ballSpin += BALL_SPIN_PER_CELL * (this.ballDirection.x || this.ballDirection.y)
 
     if (this.goal.x >= 0 && same(this.ball, this.goal)) {
       const at = { ...this.goal }

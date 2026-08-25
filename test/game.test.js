@@ -734,7 +734,7 @@ test("a ball and a goal turn up from the third set, and not in an arena", () => 
   assert.equal(endless.ball.x, -1)
 })
 
-test("a kicked ball outruns the snake and scores", () => {
+test("one kick is enough when the net is already lined up", () => {
   const game = pitch()
   game.goal = { x: 19, y: 8 }
   game.ball = { x: 12, y: 8 }
@@ -747,7 +747,7 @@ test("a kicked ball outruns the snake and scores", () => {
 
   const before = game.score
   for (let i = 0; i < 8 && !scored; ++i) game.tick()
-  assert.equal(kicks, 1, "one boot, not a dribble every tick")
+  assert.equal(kicks, 1, "pushing it along its own line is not a second kick")
   assert.deepEqual(scored, { x: 19, y: 8, points: GOAL_BONUS })
   assert.equal(game.score - before, GOAL_BONUS)
   assert.ok(game.ball.x < 0 && game.goal.x < 0, "both leave the pitch")
@@ -762,17 +762,21 @@ test("a kicked ball keeps going until something turns it round", () => {
   game.tick()
   assert.deepEqual(game.ballDirection, { x: 1, y: 0 })
 
-  // Left alone it crosses the whole board and comes back off the far wall,
-  // never once stopping.
+  // Set it rolling at the near wall and leave it alone. The snake goes off
+  // downwards, well clear of it and of any wall of its own for a while.
+  game.ball = { x: COLUMNS - 3, y: 8 }
+  game.ballDirection = { x: 1, y: 0 }
+  game.snake = [{ x: 2, y: 2 }, { x: 2, y: 1 }, { x: 2, y: 0 }]
+  game.direction = { x: 0, y: 1 }
   let bounces = 0
   game.on("ballBounced", () => ++bounces)
-  game.snake = [{ x: 2, y: 14 }, { x: 1, y: 14 }, { x: 0, y: 14 }]
-  game.direction = { x: 0, y: -1 }
-  for (let i = 0; i < 20; ++i) {
+  for (let i = 0; i < 10; ++i) {
     game.tick()
     assert.ok(game.ballRolling, "it never runs out of roll")
   }
-  assert.ok(bounces > 0, "and it turns round rather than stopping at the wall")
+  assert.equal(bounces, 1, "it turns round at the wall rather than stopping")
+  assert.deepEqual(game.ballDirection, { x: -1, y: 0 })
+  assert.ok(!game.gameOver)
 })
 
 test("a head turns a rolling ball; a body only sends it back", () => {
@@ -780,7 +784,8 @@ test("a head turns a rolling ball; a body only sends it back", () => {
   // way the snake was going, which is the only way to aim a moving one.
   const struck = pitch()
   struck.goal = { x: 2, y: 2 }
-  struck.ball = { x: 10, y: 8 }
+  // One cell short of where the snake's head is about to arrive.
+  struck.ball = { x: 11, y: 8 }
   struck.ballDirection = { x: 1, y: 0 }
   struck.snake = [{ x: 12, y: 9 }, { x: 12, y: 10 }, { x: 12, y: 11 }]
   struck.direction = { x: 0, y: -1 }
@@ -790,7 +795,7 @@ test("a head turns a rolling ball; a body only sends it back", () => {
   // The rest of the snake is just something in the way.
   const walled = pitch()
   walled.goal = { x: 2, y: 2 }
-  walled.ball = { x: 10, y: 8 }
+  walled.ball = { x: 11, y: 8 }
   walled.ballDirection = { x: 1, y: 0 }
   walled.snake = [{ x: 5, y: 2 }, { x: 12, y: 8 }, { x: 12, y: 9 }]
   walled.direction = { x: 0, y: -1 }

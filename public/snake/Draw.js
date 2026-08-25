@@ -279,18 +279,17 @@ export function draw(ctx, view) {
   }
 
   if (game.ball.x >= 0) {
+    // Rotated rather than trailed: a ball that turns as it travels says which
+    // way it is going without leaving ghosts of itself across the board.
     ctx.save()
     ctx.globalAlpha = fx.boardContentOpacity
-    if (game.ballRolling) {
-      // A short trail behind it, so which way it is going is obvious.
-      for (let i = 1; i <= 2; ++i) {
-        ctx.globalAlpha = fx.boardContentOpacity * (0.28 / i)
-        glyph(ctx, "⚽", game.ball.x - game.ballDirection.x * i, game.ball.y - game.ballDirection.y * i,
-          cell, cell * 0.7, theme.foreground)
-      }
-      ctx.globalAlpha = fx.boardContentOpacity
-    }
-    glyph(ctx, "⚽", game.ball.x, game.ball.y, cell, cell * 0.82, theme.foreground)
+    ctx.translate((game.ball.x + 0.5) * cell, (game.ball.y + 0.5) * cell)
+    ctx.rotate(game.ballSpin)
+    ctx.font = `${cell * 0.82}px sans-serif`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    ctx.fillStyle = theme.foreground
+    ctx.fillText("⚽", 0, 0)
     ctx.restore()
   }
 

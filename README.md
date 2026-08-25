@@ -116,8 +116,8 @@ reload, so dropped tracks last for the session.
 
 From set 3 a football and a goal appear on every board. Run your head into the
 ball and it is kicked the way you were going — and then it keeps going. It does
-not slow down and it does not stop: it crosses the board at two cells a tick,
-turns round off walls, obstacles and your own body, and carries on.
+not slow down and it does not stop: it rolls at your own pace, spinning as it
+travels, turning round off walls, obstacles and your own body, and carries on.
 
 The only way to aim it is to get in front of it. Your head is a boot rather
 than a wall, so putting it in the ball's path sends the ball off the way *you*
