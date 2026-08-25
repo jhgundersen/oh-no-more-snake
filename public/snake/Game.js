@@ -53,6 +53,12 @@ const FATALITY_MS = 2400
 // How long two snakes see stars after running into each other head-on, and how
 // long the boss spends backing off afterwards.
 const DIZZY_MS = 1100
+// A kicked ball travels this far before friction takes it, and it travels
+// faster than a snake — otherwise the snake simply dribbles it, re-kicking
+// every tick, and walking it into the goal takes no aim at all.
+const BALL_ROLL = 8
+const BALL_SPEED = 2
+export const GOAL_BONUS = 5
 const BOSS_FLEE_TICKS = 8
 const COMBO_DURATION_MS = 2000
 const BEAT_WINDOW_MS = 190
@@ -243,6 +249,10 @@ export const hasSnakeEater = (level, endless) => !endless && level >= 4
 export const hasReverseVenom = level => level >= 6
 export const hasFoodFrenzy = level => level >= 8
 
+// A ball and a goal turn up from the third set, on boards rather than in
+// arenas — a duel has enough going on.
+export const hasBall = level => !isBossLevel(level) && setOf(level) >= 3
+
 // Greedy one-step chase towards the tail. It never enters an obstacle or the
 // snake's body, but the target cell itself is always fair game — that is the
 // bite.
@@ -412,6 +422,10 @@ export class Game {
     this.reverseVenom = { ...NOWHERE }
     this.frenzyPickup = { ...NOWHERE }
     this.frenzyFoods = []
+    this.ball = { ...NOWHERE }
+    this.ballDirection = { x: 0, y: 0 }
+    this.ballRoll = 0
+    this.goal = { ...NOWHERE }
 
     this.boss = []
     // Pieces bitten off the middle of a boss. They have no head, so they
@@ -612,6 +626,7 @@ export class Game {
         const p = point(x, y)
         if (this.isObstacle(p) || has(this.snake, p) || has(this.boss, p)) continue
         if (this.husks.length && has(this.huskCells, p)) continue
+        if (same(p, this.ball) || same(p, this.goal)) continue
         if (except !== "food" && same(p, this.food)) continue
         if (except !== "discoBall" && same(p, this.discoBall)) continue
         if (same(p, this.snakeEater) || same(p, this.reverseVenom) || same(p, this.frenzyPickup)) continue
@@ -698,6 +713,78 @@ export class Game {
     }
     this.snakeEater = this.pick(free)
     this.snakeEaterPhase = 0
+  }
+
+  // The ball goes somewhere central-ish and the goal well away from it, so
+  // there is a shot to line up rather than a tap-in.
+  spawnBall() {
+    this.ball = { ...NOWHERE }
+    this.goal = { ...NOWHERE }
+    this.ballDirection = { x: 0, y: 0 }
+    this.ballRoll = 0
+    if (this.endlessMode || !hasBall(this.displayedLevel)) return
+
+    const free = this.freeCells()
+    if (free.length < 2) return
+    this.ball = free[Math.floor(this.random() * free.length)]
+    const far = free.filter(cell => this.boardDistance(cell, this.ball) >= 8)
+    const options = far.length ? far : free
+    this.goal = options[Math.floor(this.random() * options.length)]
+    if (same(this.goal, this.ball)) this.goal = { ...NOWHERE }
+  }
+
+  get ballRolling() {
+    return this.ball.x >= 0 && this.ballRoll > 0
+  }
+
+  // Kicked in whatever direction the snake was going. Hitting it again while
+  // it rolls is how a shot gets aimed.
+  kickBall(direction) {
+    this.ballDirection = { x: direction.x, y: direction.y }
+    this.ballRoll = BALL_ROLL
+    this.emit("ballKicked", this.ball.x, this.ball.y)
+  }
+
+  // Two cells a tick until it runs out of roll or hits something, stepped one
+  // at a time so it cannot jump a wall. It never hurts anybody: the worst it
+  // does is stop.
+  moveBall() {
+    for (let step = 0; step < BALL_SPEED; ++step) if (!this.rollBall()) return
+  }
+
+  rollBall() {
+    if (!this.ballRolling) return false
+    const next = point(this.ball.x + this.ballDirection.x, this.ball.y + this.ballDirection.y)
+    if (next.x < 0 || next.x >= COLUMNS || next.y < 0 || next.y >= ROWS) {
+      if (!this.wallsWrap) {
+        this.ballRoll = 0
+        return false
+      }
+      next.x = (next.x + COLUMNS) % COLUMNS
+      next.y = (next.y + ROWS) % ROWS
+    }
+    const inTheWay = this.isObstacle(next)
+      || has(this.snake, next)
+      || has(this.boss, next)
+      || has(this.huskCells, next)
+    if (inTheWay) {
+      this.ballRoll = 0
+      return false
+    }
+
+    this.ball = next
+    --this.ballRoll
+
+    if (this.goal.x >= 0 && same(this.ball, this.goal)) {
+      const at = { ...this.goal }
+      this.ball = { ...NOWHERE }
+      this.goal = { ...NOWHERE }
+      this.ballRoll = 0
+      this.awardPoints(GOAL_BONUS)
+      this.emit("goalScored", at.x, at.y, GOAL_BONUS)
+      return false
+    }
+    return true
   }
 
   spawnBoss() {
@@ -1058,6 +1145,7 @@ export class Game {
     this.lastTurnSign = 0
     this.placeSnake()
     this.spawnBoss()
+    this.spawnBall()
     this.spawnFood()
     this.spawnDiscoBall()
     this.spawnSnakeEater()
@@ -1102,6 +1190,7 @@ export class Game {
     const headButt = meetsBossHead && this.boss.length > 1 && this.facesHeadOn(this.direction)
     const takesBossHead = meetsBossHead && !headButt
     const huskHit = this.findHusk(head)
+    const kicksBall = this.ball.x >= 0 && same(head, this.ball)
     const hitsDiscoBall = same(head, this.discoBall)
     const hitsSnakeEater = same(head, this.snakeEater)
     const hitsReverseVenom = same(head, this.reverseVenom)
@@ -1133,6 +1222,7 @@ export class Game {
 
     this.snake.unshift(head)
 
+    if (kicksBall) this.kickBall(this.direction)
     if (takesBossHead) this.takeBossHead(head)
     else if (bitesBoss) this.biteBoss(head, bossIndex)
     else if (huskHit) this.biteHusk(head, huskHit.husk, huskHit.cell)
@@ -1218,6 +1308,7 @@ export class Game {
       this.moveSnakeEater()
       this.moveBoss()
       this.moveHusks()
+      this.moveBall()
     }
     this.emit("boardChanged")
   }
@@ -1370,6 +1461,7 @@ export class Game {
     this.pendingGrowth = 0
     this.placeSnake()
     this.spawnBoss()
+    this.spawnBall()
     this.spawnFood()
     this.spawnDiscoBall()
     this.spawnSnakeEater()
@@ -1386,6 +1478,7 @@ export class Game {
     this.displayedLevel = this.level
     this.placeSnake()
     this.spawnBoss()
+    this.spawnBall()
     this.spawnFood()
     this.spawnDiscoBall()
     this.spawnSnakeEater()

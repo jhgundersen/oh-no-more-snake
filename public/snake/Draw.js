@@ -252,6 +252,48 @@ export function draw(ctx, view) {
     glyph(ctx, food.glyph, cellPoint.x, cellPoint.y, cell, cell * 0.72, theme.accent, food.family)
   })
 
+  // --- the ball and the goal ---
+
+  if (game.goal.x >= 0) {
+    // A net drawn rather than an emoji: it has to read as a target at twelve
+    // pixels and sit right in ten themes.
+    const x = game.goal.x * cell
+    const y = game.goal.y * cell
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 420)
+    ctx.globalAlpha = fx.boardContentOpacity * (0.5 + pulse * 0.5)
+    roundRect(ctx, x + 2, y + 2, cell - 4, cell - 4, 3)
+    ctx.lineWidth = 2
+    ctx.strokeStyle = theme.accent
+    ctx.stroke()
+    ctx.globalAlpha = fx.boardContentOpacity * (0.3 + pulse * 0.3)
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (let i = 1; i < 3; ++i) {
+      ctx.moveTo(x + 2 + ((cell - 4) * i) / 3, y + 2)
+      ctx.lineTo(x + 2 + ((cell - 4) * i) / 3, y + cell - 2)
+      ctx.moveTo(x + 2, y + 2 + ((cell - 4) * i) / 3)
+      ctx.lineTo(x + cell - 2, y + 2 + ((cell - 4) * i) / 3)
+    }
+    ctx.stroke()
+    ctx.globalAlpha = 1
+  }
+
+  if (game.ball.x >= 0) {
+    ctx.save()
+    ctx.globalAlpha = fx.boardContentOpacity
+    if (game.ballRolling) {
+      // A short trail behind it, so which way it is going is obvious.
+      for (let i = 1; i <= 2; ++i) {
+        ctx.globalAlpha = fx.boardContentOpacity * (0.28 / i)
+        glyph(ctx, "⚽", game.ball.x - game.ballDirection.x * i, game.ball.y - game.ballDirection.y * i,
+          cell, cell * 0.7, theme.foreground)
+      }
+      ctx.globalAlpha = fx.boardContentOpacity
+    }
+    glyph(ctx, "⚽", game.ball.x, game.ball.y, cell, cell * 0.82, theme.foreground)
+    ctx.restore()
+  }
+
   // --- food ---
 
   const food = view.foods[game.foodStyleIndex % view.foods.length]

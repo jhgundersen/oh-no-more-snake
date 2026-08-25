@@ -109,6 +109,18 @@ playlist and are never cycled into. This is the browser's answer to the
 desktop version's `~/.local/share/omasnake/music`; object URLs do not survive a
 reload, so dropped tracks last for the session.
 
+## The ball
+
+From set 3 a football and a goal appear on every board. Run your head into the
+ball and it is kicked the way you were going — two cells a tick, faster than
+you can follow, until friction stops it or it hits something. Put it in the
+goal and both vanish and you take five points.
+
+One boot rarely does it. The ball outruns the snake deliberately, so it cannot
+be dribbled along: you kick, you watch where it stops, and you come round to
+line the next one up. It is never dangerous, whatever it runs into, and an
+unscored ball simply stays where it lies until the level ends.
+
 ## Boss fights
 
 Levels come in sets of five, named for where they sit: 1-1 through 1-4 are

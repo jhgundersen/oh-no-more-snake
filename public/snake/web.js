@@ -365,6 +365,20 @@ game.on("bossFinishReady", () => announce("Finish him. Press a direction combina
 // it should have been fatal and deliberately is not.
 game.on("headsCollided", (x, y) => showEnemyBurst("HEADBUTT", x, y))
 
+game.on("ballKicked", (x, y) => {
+  fx.burstX = x
+  fx.burstY = y
+  foodSparks.restart()
+})
+
+game.on("goalScored", (x, y, points) => {
+  showEnemyBurst(`GOAL!  +${points}`, x, y)
+  fx.burstX = x
+  fx.burstY = y
+  foodSparks.restart()
+  announce(`Goal. ${points} points.`)
+})
+
 // The only way a duel is lost, so it says which one lost it rather than
 // drawing a line from the ordinary pool.
 game.on("eatenByBoss", (x, y) => {

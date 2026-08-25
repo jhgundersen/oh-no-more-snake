@@ -88,6 +88,11 @@ These come from the Qt version and hold here too.
 
 - Preserve both Levels and Endless, their separate best scores, queued two-turn
   input, solid/wrapping borders, food skins, and lifetime playtime.
+- The ball is never lethal and must stay that way — it is a toy on the board,
+  not a hazard. It also has to outrun the snake: at one cell a tick the snake
+  re-kicks it every tick and walks it into the goal with no aim involved, which
+  is the whole game gone. `BALL_SPEED` is what stops that, and it steps one
+  cell at a time so a fast ball cannot jump a wall.
 - Party Mode may not kill. Its events add scoring, steering and clutter; Beat
   Gates were removed because they appeared under a moving snake and ended runs
   that had done nothing wrong. `beatWindowMs` stays — Beat Eater, Perfect

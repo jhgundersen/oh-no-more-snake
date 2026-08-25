@@ -10,8 +10,10 @@ import {
   COLUMNS,
   ROWS,
   Game,
+  GOAL_BONUS,
   bossLength,
   bossNumber,
+  hasBall,
   levelName,
   positionInSet,
   setOf,
@@ -681,4 +683,105 @@ test("a quick boss finds an extra step when threatened", () => {
   game.bossPace = 2 // the tick that would have been skipped is a double instead
   game.moveBoss()
   assert.equal(game.boardDistance(from, game.boss[0]), 2, "two cells, not one")
+})
+
+// --- the ball and the goal ---------------------------------------------------
+
+const pitch = () => {
+  const game = fresh()
+  game.score = scoreForLevel(11)
+  game.displayedLevel = 11 // 3-1, the first set with a ball
+  game.wallsWrap = false
+  game.prepareNextLevel = () => {}
+  game.boss = []
+  game.husks = []
+  game.food = { x: 1, y: 1 }
+  return game
+}
+
+test("a ball and a goal turn up from the third set, and not in an arena", () => {
+  assert.ok(!hasBall(1))
+  assert.ok(!hasBall(10))
+  assert.ok(hasBall(11))
+  assert.ok(!hasBall(15), "1-5, 2-5, 3-5 are duels and have neither")
+
+  const game = pitch()
+  game.spawnBall()
+  assert.ok(game.ball.x >= 0 && game.goal.x >= 0)
+  assert.ok(game.boardDistance(game.ball, game.goal) >= 8, "there is a shot to line up")
+
+  // Endless has no levels to unlock it with.
+  const endless = fresh()
+  endless.endlessMode = true
+  endless.spawnBall()
+  assert.equal(endless.ball.x, -1)
+})
+
+test("a kicked ball outruns the snake and scores", () => {
+  const game = pitch()
+  game.goal = { x: 19, y: 8 }
+  game.ball = { x: 12, y: 8 }
+  game.snake = [{ x: 11, y: 8 }, { x: 10, y: 8 }, { x: 9, y: 8 }]
+  game.direction = { x: 1, y: 0 }
+  let kicks = 0
+  let scored = null
+  game.on("ballKicked", () => ++kicks)
+  game.on("goalScored", (x, y, points) => (scored = { x, y, points }))
+
+  const before = game.score
+  for (let i = 0; i < 8 && !scored; ++i) game.tick()
+  assert.equal(kicks, 1, "one boot, not a dribble every tick")
+  assert.deepEqual(scored, { x: 19, y: 8, points: GOAL_BONUS })
+  assert.equal(game.score - before, GOAL_BONUS)
+  assert.ok(game.ball.x < 0 && game.goal.x < 0, "both leave the pitch")
+})
+
+test("a ball runs out of roll, and can be kicked again", () => {
+  const game = pitch()
+  game.goal = { x: 2, y: 2 }
+  game.ball = { x: 6, y: 8 }
+  game.snake = [{ x: 5, y: 8 }, { x: 4, y: 8 }, { x: 3, y: 8 }]
+  game.direction = { x: 1, y: 0 }
+
+  for (let i = 0; i < 8; ++i) game.tick()
+  assert.equal(game.ballRoll, 0, "friction stops it")
+  assert.ok(game.ball.x >= 0, "and it stays where it stopped")
+
+  // Walk up to it again and boot it a second time.
+  const resting = { ...game.ball }
+  let kicks = 0
+  game.on("ballKicked", () => ++kicks)
+  for (let i = 0; i < 12 && !kicks; ++i) game.tick()
+  assert.equal(kicks, 1, "a second kick is available to anyone who catches it")
+  assert.notDeepEqual(game.ball, resting)
+})
+
+test("a ball stops at a solid wall and wraps through a soft one", () => {
+  const game = pitch()
+  game.goal = { x: 2, y: 14 }
+  game.ball = { x: COLUMNS - 2, y: 8 }
+  game.snake = [{ x: COLUMNS - 3, y: 8 }, { x: COLUMNS - 4, y: 8 }, { x: COLUMNS - 5, y: 8 }]
+  game.direction = { x: 1, y: 0 }
+  game.tick()
+  assert.equal(game.ball.x, COLUMNS - 1, "it reaches the wall")
+  assert.equal(game.ballRoll, 0, "and stops there")
+
+  game.wallsWrap = true
+  game.ball = { x: COLUMNS - 2, y: 4 }
+  game.snake = [{ x: COLUMNS - 3, y: 4 }, { x: COLUMNS - 4, y: 4 }, { x: COLUMNS - 5, y: 4 }]
+  game.direction = { x: 1, y: 0 }
+  game.tick()
+  assert.equal(game.ball.x, 0, "with wrapping it carries on round")
+})
+
+test("a ball is never lethal, whatever it runs into", () => {
+  const game = pitch()
+  game.goal = { x: 2, y: 14 }
+  // Kicked straight at a wall of the snake's own body.
+  game.ball = { x: 8, y: 8 }
+  game.snake = [{ x: 7, y: 8 }, { x: 7, y: 7 }, { x: 8, y: 7 }, { x: 9, y: 7 }, { x: 9, y: 8 }]
+  game.direction = { x: 1, y: 0 }
+  game.tick()
+  assert.ok(!game.gameOver)
+  assert.ok(game.ball.x >= 0, "it is still on the pitch")
 })
