@@ -243,19 +243,6 @@ export function draw(ctx, view) {
     ctx.restore()
   }
 
-  for (const gate of game.beatGates) {
-    const x = gate.x * cell + 2
-    const y = gate.y * cell + 2
-    const size = cell - 4
-    ctx.globalAlpha = game.beatGatesOpen ? 0.25 : 0.9
-    if (!game.beatGatesOpen) fillRound(ctx, x, y, size, size, 3, theme.accent)
-    else roundRect(ctx, x, y, size, size, 3)
-    ctx.lineWidth = 2
-    ctx.strokeStyle = theme.foreground
-    ctx.stroke()
-    ctx.globalAlpha = 1
-  }
-
   if (game.reverseVenom.x >= 0)
     glyph(ctx, "☣", game.reverseVenom.x, game.reverseVenom.y, cell, cell * 0.85, theme.accent)
   if (game.frenzyPickup.x >= 0)

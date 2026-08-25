@@ -16,8 +16,6 @@ import {
   isBossLevel,
   matchFatality,
   nextBossStep,
-  beatGateCount,
-  hasBeatGates,
   hasFoodFrenzy,
   hasReverseVenom,
   hasSnakeEater,
@@ -183,13 +181,6 @@ test("snake eater hunts the tail and costs points", () => {
 })
 
 test("party events unlock gradually", () => {
-  assert.ok(!hasBeatGates(5))
-  assert.ok(hasBeatGates(6))
-  assert.equal(beatGateCount(5), 0)
-  assert.equal(beatGateCount(6), 1)
-  assert.equal(beatGateCount(9), 2)
-  assert.equal(beatGateCount(12), 3)
-  assert.equal(beatGateCount(15), 4)
   assert.ok(!hasReverseVenom(5))
   assert.ok(hasReverseVenom(6))
   assert.ok(!hasFoodFrenzy(7))

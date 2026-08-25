@@ -88,6 +88,10 @@ These come from the Qt version and hold here too.
 
 - Preserve both Levels and Endless, their separate best scores, queued two-turn
   input, solid/wrapping borders, food skins, and lifetime playtime.
+- Party Mode may not kill. Its events add scoring, steering and clutter; Beat
+  Gates were removed because they appeared under a moving snake and ended runs
+  that had done nothing wrong. `beatWindowMs` stays — Beat Eater, Perfect
+  Timing and Dance Floor all read it — but nothing it opens may be lethal.
 - A boss level is an extra level, never a replacement for a layout: all eight
   are still seen once per set. `layoutOrdinal` is what counts past them, and
   `levelThresholds` and the layout tests are what catch it if that slips.

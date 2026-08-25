@@ -88,10 +88,8 @@ Thread the Needle, Snake Byte, Tailgate, Beat Eater, Perfect Timing and Dance
 Floor reward tight driving and moving in time with the music. Each announces
 itself on the board.
 
-More events unlock as Levels progresses. Beat Gates appear from level 6 and
-open only on strong beats, starting with one gate and adding another every
-three levels up to four. Reverse Venom appears from level 6 and rotates your
-steering a quarter turn for five seconds. From level 8, Food Frenzy scatters
+More events unlock as Levels progresses. Reverse Venom appears from level 6
+and rotates your steering a quarter turn for five seconds. From level 8, Food Frenzy scatters
 ten bonus foods for eight seconds. Timing and positions are randomised every
 time.
 

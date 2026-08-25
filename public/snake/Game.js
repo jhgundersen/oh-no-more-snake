@@ -183,8 +183,6 @@ export function isNeedlePassage(p, obstacles, wrap) {
 export const SNAKE_EATER_REWARD = 2
 export const scoreAfterSnakeBite = score => Math.max(0, score - 1)
 export const hasSnakeEater = (level, endless) => !endless && level >= 4
-export const hasBeatGates = level => level >= 6
-export const beatGateCount = level => (level < 6 ? 0 : Math.min(4, 1 + Math.floor((level - 6) / 3)))
 export const hasReverseVenom = level => level >= 6
 export const hasFoodFrenzy = level => level >= 8
 
@@ -318,7 +316,6 @@ export class Game {
     this.food = { ...NOWHERE }
     this.discoBall = { ...NOWHERE }
     this.snakeEater = { ...NOWHERE }
-    this.beatGates = []
     this.reverseVenom = { ...NOWHERE }
     this.frenzyPickup = { ...NOWHERE }
     this.frenzyFoods = []
@@ -353,8 +350,6 @@ export class Game {
     this.lastTurnSign = 0
     this.snakeEaterPhase = 0
     this.snakeEaterRespawnTicks = 0
-    this.gateSpawnMs = 0
-    this.gateLifetimeMs = 0
     this.reverseVenomSpawnMs = 0
     this.reverseVenomRemainingMs = 0
     this.frenzySpawnMs = 0
@@ -487,10 +482,6 @@ export class Game {
     return this.comboRemainingMs / COMBO_DURATION_MS
   }
 
-  get beatGatesOpen() {
-    return this.beatWindowMs > 0
-  }
-
   get reverseVenomActive() {
     return this.reverseVenomRemainingMs > 0
   }
@@ -529,7 +520,7 @@ export class Game {
         if (except !== "food" && same(p, this.food)) continue
         if (except !== "discoBall" && same(p, this.discoBall)) continue
         if (same(p, this.snakeEater) || same(p, this.reverseVenom) || same(p, this.frenzyPickup)) continue
-        if (has(this.beatGates, p) || has(this.frenzyFoods, p)) continue
+        if (has(this.frenzyFoods, p)) continue
         free.push(p)
       }
     }
@@ -873,29 +864,15 @@ export class Game {
   // --- party events ---
 
   resetPartyEvents() {
-    this.beatGates = []
     this.frenzyFoods = []
     this.reverseVenom = { ...NOWHERE }
     this.frenzyPickup = { ...NOWHERE }
-    this.gateLifetimeMs = 0
     this.reverseVenomRemainingMs = 0
     this.frenzyRemainingMs = 0
-    this.gateSpawnMs = this.partyMode ? this.bounded(2500, 6501) : 0
     this.reverseVenomSpawnMs = this.partyMode ? this.bounded(7000, 15001) : 0
     this.frenzySpawnMs = this.partyMode ? this.bounded(10000, 20001) : 0
     this.emit("partyEventChanged")
     this.emit("boardChanged")
-  }
-
-  spawnBeatGates() {
-    this.beatGates = []
-    for (let i = 0; i < beatGateCount(this.displayedLevel); ++i) {
-      const p = this.randomFreeCell()
-      if (p.x >= 0) this.beatGates.push(p)
-    }
-    this.gateLifetimeMs = 10000
-    if (this.beatGates.length)
-      this.emit("partyEvent", "BEAT GATES", this.beatGates[0].x, this.beatGates[0].y)
   }
 
   startFoodFrenzy() {
@@ -911,18 +888,6 @@ export class Game {
     // Gates, venom and frenzies would all be in the way of a duel that is
     // already about reading the board.
     if (this.bossLevel) return
-    if (hasBeatGates(this.displayedLevel)) {
-      if (this.gateLifetimeMs > 0) {
-        this.gateLifetimeMs = Math.max(0, this.gateLifetimeMs - ms)
-        if (this.gateLifetimeMs === 0) {
-          this.beatGates = []
-          this.gateSpawnMs = this.bounded(5000, 10001)
-        }
-      } else if (this.gateSpawnMs > 0) {
-        this.gateSpawnMs = Math.max(0, this.gateSpawnMs - ms)
-        if (this.gateSpawnMs === 0) this.spawnBeatGates()
-      }
-    }
     if (hasReverseVenom(this.displayedLevel)) {
       if (this.reverseVenomRemainingMs > 0) {
         this.reverseVenomRemainingMs = Math.max(0, this.reverseVenomRemainingMs - ms)
@@ -1030,7 +995,7 @@ export class Game {
         break
       }
     }
-    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf || devoured) {
+    if (this.isObstacle(head) || hitsSelf || devoured) {
       if (devoured) this.emit("devoured", head.x, head.y)
       this.finish()
       return
