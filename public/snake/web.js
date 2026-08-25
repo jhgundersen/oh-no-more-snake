@@ -293,6 +293,49 @@ function skipLevelTransition() {
   return true
 }
 
+// --- swapping the soundtrack for a duel --------------------------------------
+
+// One track at a time, so a swap is a fade down, a change, and a fade back up
+// rather than a crossfade. The splash is on screen for most of it, which is
+// what makes the gap read as an arrival instead of a gap.
+const PLAYING_VOLUME = 0.55
+let musicSwapTarget = null
+
+const swapFadeOut = register(new Tween({
+  from: PLAYING_VOLUME, to: 0, duration: 550, curve: easing.inOutSine,
+  apply: value => music.setVolume(value),
+  onDone: () => {
+    const change = musicSwapTarget === "playlist"
+      ? music.leaveBossTrack()
+      : music.enterBossTrack(musicSwapTarget)
+    change.then(() => {
+      // If the run ended or paused mid-swap, the silence was the right answer.
+      const wanted = game.running && !game.gameOver ? PLAYING_VOLUME : 0
+      swapFadeIn.restart({ from: 0, to: wanted })
+    })
+  }
+}))
+
+const swapFadeIn = register(new Tween({
+  from: 0, to: PLAYING_VOLUME, duration: 950, curve: easing.inOutSine,
+  apply: value => music.setVolume(value)
+}))
+
+const swappingMusic = () => swapFadeOut.running || swapFadeIn.running
+
+function swapMusic(target) {
+  musicSwapTarget = target
+  if (!music.enabled) {
+    // Nothing is playing, so there is nothing to fade — just line up the
+    // right track for whenever Party Mode is switched on.
+    if (target === "playlist") music.leaveBossTrack()
+    else music.enterBossTrack(target)
+    return
+  }
+  swapFadeIn.stop()
+  swapFadeOut.restart({ from: music.volume })
+}
+
 const musicFade = register(new Tween({
   from: 0, to: 0, duration: 650, curve: easing.inOutSine,
   apply: v => music.setVolume(v)
@@ -312,6 +355,8 @@ game.on("bossArrived", number => {
   const boss = bossFor(number)
   startSplash("boss")
   announce(`Boss fight. ${boss.name}. ${boss.epithet}`)
+  // Alternating, so both boss tracks get used across a run.
+  swapMusic((number - 1) % Math.max(1, music.bossTrackCount))
 })
 
 game.on("bossBitten", (x, y, remaining) => showEnemyBurst(remaining > 1 ? "−1  SEGMENT" : "DISARMED", x, y))
@@ -379,7 +424,7 @@ game.on("statusChanged", () => {
   }
   // Level transitions leave playback completely alone. Pause and death fade to
   // silence before suspending the player.
-  if (!game.levelTransition) {
+  if (!game.levelTransition && !swappingMusic()) {
     musicPauseDelay = 0
     musicFade.stop()
     if (game.running && !game.gameOver) {
@@ -857,6 +902,10 @@ function frame(now) {
   // The finish window and the finish itself run on their own clock, which
   // keeps going while everything on the board is deliberately frozen.
   game.advanceBoss(delta)
+
+  // A boss track belongs to a boss level. Winning, dying, restarting or
+  // jumping away all leave one, and all of them sound the same from here.
+  if (music.inBossTrack && !swappingMusic() && (!game.bossLevel || game.gameOver)) swapMusic("playlist")
 
   // A track too slow or too quiet to produce a strong beat must not leave the
   // level-clear screen up forever.

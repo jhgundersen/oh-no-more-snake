@@ -28,6 +28,8 @@ right and this one has a bug — with the deliberate exceptions listed under
   for `src/theme.cpp`, which reads Omarchy's `colors.toml`.
 - `public/snake/Messages.js` — the level-clear, game-over and combo pools,
   copied verbatim from the QML.
+- `public/snake/boss_1.mp3`, `boss_2.mp3` — the duel soundtrack. Like the rest
+  of the audio these are cached forever, so a replacement gets a new number.
 - `public/snake/Bosses.js` — the boss roster, their drawn portraits, and the
   finisher combinations. Portraits are canvas shapes rather than image files:
   six pictures would be most of the page's weight, and drawn ones sit correctly
@@ -143,6 +145,12 @@ Each of these is a deliberate answer to something a browser cannot do. Do not
   Linux glyphs are private-use codepoints. They join the cycle only when
   `document.fonts.check` confirms the family is installed; otherwise the cycle
   is the five fruit, because the alternative is four identical boxes.
+- **Boss tracks sit outside the playlist.** They interrupt it rather than
+  belong to it: `enterBossTrack` remembers the track and the second it was at,
+  `leaveBossTrack` puts both back, and what gets saved to storage is always the
+  playlist position, never the interruption. One `<audio>` element means a swap
+  is a fade down, a change and a fade back up rather than a crossfade — the
+  splash covers the gap, which is what makes it read as an arrival.
 - **Custom music is dropped, not read from disk.** A page cannot see
   `~/.local/share/omasnake/music`. Dropped files last for the session, because
   object URLs do not survive a reload.

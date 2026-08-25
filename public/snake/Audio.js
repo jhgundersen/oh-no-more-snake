@@ -25,6 +25,14 @@ const BUILT_IN = [
   { url: "snake/soundtrack_15.mp3", name: "Wake Me Up Before You Boa-Go" }
 ]
 
+// Boss tracks are not part of the playlist: `n` does not cycle through them,
+// and they interrupt what is playing rather than replacing it. Whatever was on
+// is remembered, down to the second, and put back afterwards.
+const BOSS_TRACKS = [
+  { url: "snake/boss_1.mp3", name: "Cathedral of Iron Scales" },
+  { url: "snake/boss_2.mp3", name: "Rusted Iron Hiss" }
+]
+
 const BANDS = 48
 const FFT_SIZE = 2048
 const PLAYING_VOLUME = 0.55
@@ -75,6 +83,9 @@ export class MusicController {
     })
 
     this.resumePosition = 0
+    // Set while a boss track is playing over the top of the playlist.
+    this.bossTrack = null
+    this.bossReturn = null
     this.loadState()
     this.element.src = this.tracks[this.track].url
     setInterval(() => this.saveState(), 5000)
@@ -93,7 +104,45 @@ export class MusicController {
   }
 
   get trackName() {
-    return this.tracks[this.track]?.name || "No tracks"
+    return this.bossTrack ? this.bossTrack.name : this.tracks[this.track]?.name || "No tracks"
+  }
+
+  get inBossTrack() {
+    return Boolean(this.bossTrack)
+  }
+
+  get bossTrackCount() {
+    return BOSS_TRACKS.length
+  }
+
+  // Steps aside for a boss, remembering exactly where to come back to.
+  async enterBossTrack(index) {
+    if (this.bossTrack) return
+    this.bossReturn = { track: this.track, position: this.element.currentTime || 0 }
+    this.bossTrack = BOSS_TRACKS[((index % BOSS_TRACKS.length) + BOSS_TRACKS.length) % BOSS_TRACKS.length]
+    this.energyHistory = []
+    this.lastOnset = -1
+    this.resumePosition = 0
+    this.element.src = this.bossTrack.url
+    this.element.load()
+    if (this.enabled && this.gameActive) await this.play()
+    this.emit("trackChanged")
+  }
+
+  // Back to the playlist, and back to the second it was interrupted at.
+  async leaveBossTrack() {
+    if (!this.bossTrack) return
+    const { track, position } = this.bossReturn || { track: this.track, position: 0 }
+    this.bossTrack = null
+    this.bossReturn = null
+    this.track = Math.min(track, Math.max(0, this.tracks.length - 1))
+    this.energyHistory = []
+    this.lastOnset = -1
+    this.resumePosition = position
+    this.element.src = this.tracks[this.track].url
+    this.element.load()
+    if (this.enabled && this.gameActive) await this.play()
+    this.emit("trackChanged")
   }
 
   // --- graph ---
@@ -158,6 +207,13 @@ export class MusicController {
     if (!this.tracks.length) return
     this.track = (this.track + 1) % this.tracks.length
     this.resumePosition = 0
+    // A boss track is playing over the top of the playlist. Changing the
+    // playlist now decides what comes back afterwards; it interrupts nothing.
+    if (this.bossTrack) {
+      this.bossReturn = { track: this.track, position: 0 }
+      this.emit("trackChanged")
+      return
+    }
     this.loadTrack()
     if (this.enabled && this.gameActive) this.play()
     this.saveState()
@@ -230,13 +286,17 @@ export class MusicController {
 
   saveState() {
     if (!this.store || !this.tracks.length) return
-    const current = this.tracks[this.track]
+    // A boss track is an interruption, not a place in the playlist, so what is
+    // remembered is where the playlist was when it started.
+    const index = this.bossReturn ? this.bossReturn.track : this.track
+    const position = this.bossReturn ? this.bossReturn.position : this.element.currentTime || 0
+    const current = this.tracks[index]
     try {
       // A blob URL is meaningless next session; remember the built-in it would
       // otherwise overwrite instead.
       if (current.builtIn) this.store.setItem("omasnake/music/track", current.url)
-      this.store.setItem("omasnake/music/trackIndex", current.builtIn ? this.track : 0)
-      this.store.setItem("omasnake/music/position", current.builtIn ? this.element.currentTime || 0 : 0)
+      this.store.setItem("omasnake/music/trackIndex", current.builtIn ? index : 0)
+      this.store.setItem("omasnake/music/position", current.builtIn ? position : 0)
     } catch {
       // Storage is a convenience here, never a requirement.
     }

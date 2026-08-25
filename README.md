@@ -102,7 +102,8 @@ gets on with it.
 ## Your own music
 
 Drop audio files anywhere on the page. They join the playlist, sorted by
-filename, and `n` cycles through them. This is the browser's answer to the
+filename, and `n` cycles through them. Boss tracks are not part of the
+playlist and are never cycled into. This is the browser's answer to the
 desktop version's `~/.local/share/omasnake/music`; object URLs do not survive a
 reload, so dropped tracks last for the session.
 
@@ -144,6 +145,11 @@ logo felt like the right call.
 Only the last four inputs count, so a fumbled start costs nothing. Hesitating
 past five seconds is a finish too — a worse one, and it still ends the same way. Winning pays for the level it
 cleared, and whatever was scored during the fight is kept on top.
+
+A duel has its own music. Whatever was playing fades down, one of two boss
+tracks comes in under the challenger card, and when the level is over the
+playlist fades back in at the second it was interrupted at. Pressing `n` during
+a fight does not interrupt the boss track; it chooses what comes back.
 
 The six bosses cycle: Null Pointer, Segfault, Deadlock, Stack Overflow, Race
 Condition and Memory Leak. Their portraits are drawn rather than loaded, so
