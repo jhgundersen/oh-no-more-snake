@@ -753,42 +753,50 @@ test("a kicked ball outruns the snake and scores", () => {
   assert.ok(game.ball.x < 0 && game.goal.x < 0, "both leave the pitch")
 })
 
-test("a ball runs out of roll, and can be kicked again", () => {
+test("a kicked ball keeps going until something turns it round", () => {
   const game = pitch()
   game.goal = { x: 2, y: 2 }
   game.ball = { x: 6, y: 8 }
   game.snake = [{ x: 5, y: 8 }, { x: 4, y: 8 }, { x: 3, y: 8 }]
   game.direction = { x: 1, y: 0 }
+  game.tick()
+  assert.deepEqual(game.ballDirection, { x: 1, y: 0 })
 
-  for (let i = 0; i < 8; ++i) game.tick()
-  assert.equal(game.ballRoll, 0, "friction stops it")
-  assert.ok(game.ball.x >= 0, "and it stays where it stopped")
-
-  // Walk up to it again and boot it a second time.
-  const resting = { ...game.ball }
-  let kicks = 0
-  game.on("ballKicked", () => ++kicks)
-  for (let i = 0; i < 12 && !kicks; ++i) game.tick()
-  assert.equal(kicks, 1, "a second kick is available to anyone who catches it")
-  assert.notDeepEqual(game.ball, resting)
+  // Left alone it crosses the whole board and comes back off the far wall,
+  // never once stopping.
+  let bounces = 0
+  game.on("ballBounced", () => ++bounces)
+  game.snake = [{ x: 2, y: 14 }, { x: 1, y: 14 }, { x: 0, y: 14 }]
+  game.direction = { x: 0, y: -1 }
+  for (let i = 0; i < 20; ++i) {
+    game.tick()
+    assert.ok(game.ballRolling, "it never runs out of roll")
+  }
+  assert.ok(bounces > 0, "and it turns round rather than stopping at the wall")
 })
 
-test("a ball stops at a solid wall and wraps through a soft one", () => {
-  const game = pitch()
-  game.goal = { x: 2, y: 14 }
-  game.ball = { x: COLUMNS - 2, y: 8 }
-  game.snake = [{ x: COLUMNS - 3, y: 8 }, { x: COLUMNS - 4, y: 8 }, { x: COLUMNS - 5, y: 8 }]
-  game.direction = { x: 1, y: 0 }
-  game.tick()
-  assert.equal(game.ball.x, COLUMNS - 1, "it reaches the wall")
-  assert.equal(game.ballRoll, 0, "and stops there")
+test("a head turns a rolling ball; a body only sends it back", () => {
+  // Standing in the ball's way with the head is a kick: the ball leaves the
+  // way the snake was going, which is the only way to aim a moving one.
+  const struck = pitch()
+  struck.goal = { x: 2, y: 2 }
+  struck.ball = { x: 10, y: 8 }
+  struck.ballDirection = { x: 1, y: 0 }
+  struck.snake = [{ x: 12, y: 9 }, { x: 12, y: 10 }, { x: 12, y: 11 }]
+  struck.direction = { x: 0, y: -1 }
+  struck.tick()
+  assert.deepEqual(struck.ballDirection, { x: 0, y: -1 }, "it goes the way it was hit")
 
-  game.wallsWrap = true
-  game.ball = { x: COLUMNS - 2, y: 4 }
-  game.snake = [{ x: COLUMNS - 3, y: 4 }, { x: COLUMNS - 4, y: 4 }, { x: COLUMNS - 5, y: 4 }]
-  game.direction = { x: 1, y: 0 }
-  game.tick()
-  assert.equal(game.ball.x, 0, "with wrapping it carries on round")
+  // The rest of the snake is just something in the way.
+  const walled = pitch()
+  walled.goal = { x: 2, y: 2 }
+  walled.ball = { x: 10, y: 8 }
+  walled.ballDirection = { x: 1, y: 0 }
+  walled.snake = [{ x: 5, y: 2 }, { x: 12, y: 8 }, { x: 12, y: 9 }]
+  walled.direction = { x: 0, y: -1 }
+  walled.tick()
+  assert.deepEqual(walled.ballDirection, { x: -1, y: 0 }, "off a body it comes straight back")
+  assert.ok(!walled.gameOver)
 })
 
 test("a ball is never lethal, whatever it runs into", () => {

@@ -68,10 +68,10 @@ const FATALITY_MS = 2400
 // How long two snakes see stars after running into each other head-on, and how
 // long the boss spends backing off afterwards.
 const DIZZY_MS = 1100
-// A kicked ball travels this far before friction takes it, and it travels
-// faster than a snake — otherwise the snake simply dribbles it, re-kicking
-// every tick, and walking it into the goal takes no aim at all.
-const BALL_ROLL = 8
+// Once kicked a ball never stops: it rolls until something turns it round or
+// it finds the net. It travels faster than a snake, which is what stops the
+// snake simply dribbling it — at the same speed the head catches it every tick
+// and steers it into the goal with no aim involved.
 const BALL_SPEED = 2
 export const GOAL_BONUS = 5
 const BOSS_FLEE_TICKS = 8
@@ -86,6 +86,9 @@ const MINIMUM_BITEABLE_LENGTH = 3
 export const NOWHERE = { x: -1, y: -1 }
 
 const point = (x, y) => ({ x, y })
+// Negating a zero gives a negative zero, which compares equal to zero but is
+// not it — enough to make a stored direction vector fail a deep comparison.
+const flip = value => (value === 0 ? 0 : -value)
 const same = (a, b) => a.x === b.x && a.y === b.y
 const has = (list, p) => list.some(cell => same(cell, p))
 
@@ -439,7 +442,6 @@ export class Game {
     this.frenzyFoods = []
     this.ball = { ...NOWHERE }
     this.ballDirection = { x: 0, y: 0 }
-    this.ballRoll = 0
     this.goal = { ...NOWHERE }
 
     this.boss = []
@@ -736,7 +738,6 @@ export class Game {
     this.ball = { ...NOWHERE }
     this.goal = { ...NOWHERE }
     this.ballDirection = { x: 0, y: 0 }
-    this.ballRoll = 0
     if (this.endlessMode || !hasBall(this.displayedLevel)) return
 
     const free = this.freeCells()
@@ -749,57 +750,65 @@ export class Game {
   }
 
   get ballRolling() {
-    return this.ball.x >= 0 && this.ballRoll > 0
+    return this.ball.x >= 0 && (this.ballDirection.x !== 0 || this.ballDirection.y !== 0)
   }
 
-  // Kicked in whatever direction the snake was going. Hitting it again while
-  // it rolls is how a shot gets aimed.
+  // Kicked in whatever direction the snake was going, which is the only way to
+  // change where it is headed: catch it side-on and it turns.
   kickBall(direction) {
     this.ballDirection = { x: direction.x, y: direction.y }
-    this.ballRoll = BALL_ROLL
     this.emit("ballKicked", this.ball.x, this.ball.y)
   }
 
-  // Two cells a tick until it runs out of roll or hits something, stepped one
-  // at a time so it cannot jump a wall. It never hurts anybody: the worst it
-  // does is stop.
+  // Two cells a tick, stepped one at a time so a fast ball cannot jump a wall.
+  // It never hurts anybody: the worst it does is come back at you.
   moveBall() {
     for (let step = 0; step < BALL_SPEED; ++step) if (!this.rollBall()) return
   }
 
+  // Returns false when the step was spent turning round rather than moving.
   rollBall() {
     if (!this.ballRolling) return false
     const next = point(this.ball.x + this.ballDirection.x, this.ball.y + this.ballDirection.y)
-    if (next.x < 0 || next.x >= COLUMNS || next.y < 0 || next.y >= ROWS) {
-      if (!this.wallsWrap) {
-        this.ballRoll = 0
-        return false
-      }
+    const offBoard = next.x < 0 || next.x >= COLUMNS || next.y < 0 || next.y >= ROWS
+    if (offBoard && !this.wallsWrap) return this.bounceBall()
+    if (offBoard) {
       next.x = (next.x + COLUMNS) % COLUMNS
       next.y = (next.y + ROWS) % ROWS
     }
+    // The head is a boot, not a wall: stand in the ball's way and it leaves
+    // the way you are going, which is how a rolling ball gets turned at all.
+    if (this.snake.length && same(next, this.snake[0])) {
+      this.kickBall(this.direction)
+      return false
+    }
+
     const inTheWay = this.isObstacle(next)
       || has(this.snake, next)
       || has(this.boss, next)
       || has(this.huskCells, next)
-    if (inTheWay) {
-      this.ballRoll = 0
-      return false
-    }
+    if (inTheWay) return this.bounceBall()
 
     this.ball = next
-    --this.ballRoll
 
     if (this.goal.x >= 0 && same(this.ball, this.goal)) {
       const at = { ...this.goal }
       this.ball = { ...NOWHERE }
       this.goal = { ...NOWHERE }
-      this.ballRoll = 0
+      this.ballDirection = { x: 0, y: 0 }
       this.awardPoints(GOAL_BONUS)
       this.emit("goalScored", at.x, at.y, GOAL_BONUS)
       return false
     }
     return true
+  }
+
+  // Nothing here moves diagonally, so every surface is square on and a bounce
+  // is simply the way it came.
+  bounceBall() {
+    this.ballDirection = { x: flip(this.ballDirection.x), y: flip(this.ballDirection.y) }
+    this.emit("ballBounced", this.ball.x, this.ball.y)
+    return false
   }
 
   spawnBoss() {

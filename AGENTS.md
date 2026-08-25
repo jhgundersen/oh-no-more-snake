@@ -93,6 +93,11 @@ These come from the Qt version and hold here too.
   re-kicks it every tick and walks it into the goal with no aim involved, which
   is the whole game gone. `BALL_SPEED` is what stops that, and it steps one
   cell at a time so a fast ball cannot jump a wall.
+- A kicked ball never stops. Friction would make it a one-shot puzzle; rolling
+  for ever makes it a moving one, which is the point. Everything it meets turns
+  it round *except* the snake's head, which strikes it: the head is a boot and
+  the body is a wall, and that distinction is the only way to aim a ball that
+  is already moving.
 - Party Mode may not kill. Its events add scoring, steering and clutter; Beat
   Gates were removed because they appeared under a moving snake and ended runs
   that had done nothing wrong. `beatWindowMs` stays — Beat Eater, Perfect

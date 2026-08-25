@@ -115,14 +115,19 @@ reload, so dropped tracks last for the session.
 ## The ball
 
 From set 3 a football and a goal appear on every board. Run your head into the
-ball and it is kicked the way you were going — two cells a tick, faster than
-you can follow, until friction stops it or it hits something. Put it in the
-goal and both vanish and you take five points.
+ball and it is kicked the way you were going — and then it keeps going. It does
+not slow down and it does not stop: it crosses the board at two cells a tick,
+turns round off walls, obstacles and your own body, and carries on.
 
-One boot rarely does it. The ball outruns the snake deliberately, so it cannot
-be dribbled along: you kick, you watch where it stops, and you come round to
-line the next one up. It is never dangerous, whatever it runs into, and an
-unscored ball simply stays where it lies until the level ends.
+The only way to aim it is to get in front of it. Your head is a boot rather
+than a wall, so putting it in the ball's path sends the ball off the way *you*
+were moving: come at a ball rolling east from below and it leaves heading
+north. Working a loose ball round the board and into the net takes several of
+these, which is the game of it.
+
+Five points for a goal, and both the ball and the net leave the board. It is
+never dangerous, whatever it hits, and a ball nobody scores with just keeps
+rolling until the level ends.
 
 ## Boss fights
 
