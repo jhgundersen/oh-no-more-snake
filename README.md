@@ -55,10 +55,13 @@ explicit no, so the parameter can be templated in as a variable.
 
 ## How it plays
 
-Levels introduces one of eight repeating obstacle layouts after level 1, then a
-boss fight, then the eight again — narrower, faster and worth more each time
-round. Every set the gaps close by one cell, the level costs one more apple,
-and the tick gets 7 ms faster, down to a floor of 55 ms. From level 4, a snake eater hunts the tail: each bite removes one
+Levels runs in sets of five: four boards and a duel, named 1-1 to 1-5, then 2-1
+onwards. 1-1 is deliberately empty; after that there are twelve board shapes,
+each drawn in four orientations, so nothing repeats for forty-eight levels —
+and by then the gaps have closed and it does not look like the same board
+anyway. Every set the tick gets 5 ms faster, down to a floor of 55 ms; every
+second set a level costs one more apple; every third set the gaps close by a
+cell. From level 4, a snake eater hunts the tail: each bite removes one
 block and one point, and steering the head into it earns two points and drives
 it away for a while. Endless is the classic open board at one speed.
 
@@ -108,22 +111,24 @@ reload, so dropped tracks last for the session.
 
 ## Boss fights
 
-Every ninth level is a duel. After all eight obstacle layouts have been seen
-and before they start again — narrower, faster and worth more — a rival snake
-turns up in an empty arena, announced by name and portrait the way Party Mode
-announces itself.
+Levels come in sets of five, named for where they sit: 1-1 through 1-4 are
+boards, 1-5 is a duel, then 2-1 begins again narrower, faster and worth more.
+The rival turns up in an empty arena, announced by name and portrait the way
+Party Mode announces itself.
 
 Eat him. Every part of a boss is worth reaching: bite the tail and it gets
 shorter, bite the middle and it comes apart, leaving a headless piece to drift
 around the arena until you eat that too.
 
 Reaching the head ends the fight on the spot — but only from the side or from
-behind. Head-on it eats you instead, and which of the two it will be is written
-on its face: a boss's red eyes point the way it is looking. It is chasing your
-tail, so where your tail is decides which way it turns.
+behind. Nose to nose neither of you gets anywhere: both snakes see stars, hold
+still for a moment, and the boss backs off before returning to its senses.
+Which it will be is written on its face, since a boss's red eyes point the way
+it is looking, and it is chasing your tail — so where your tail is decides
+which way it turns.
 
-It is hunting you the same way, and it notices company: get within a few cells
-of its head and it stops dawdling — the slower bosses give up the tick they
+Being eaten is the only way to lose a duel. It hunts you as you hunt it, and it
+notices company: get within a few cells of its head and it stops dawdling — the slower bosses give up the tick they
 would have rested on, the quicker ones find an extra step — and its eyes glow
 while it is paying attention. It takes blocks off your tail one at a time,
 with no floor under it: eaten down to your last block is a loss. It will not

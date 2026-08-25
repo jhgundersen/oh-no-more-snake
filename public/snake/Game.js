@@ -13,14 +13,16 @@ export const COLUMNS = 22
 export const ROWS = 16
 
 const POINTS_PER_LEVEL = 12
-const LAYOUTS_PER_CYCLE = 8
 
-// Eight layouts, then a duel. The boss is a level of its own rather than a
-// replacement, so every layout is still seen once per cycle before the set
-// starts again narrower and faster.
-export const LEVELS_PER_SET = LAYOUTS_PER_CYCLE + 1
-export const isBossLevel = level => level > 1 && level % LEVELS_PER_SET === 1
-export const bossNumber = level => (isBossLevel(level) ? Math.floor(level / LEVELS_PER_SET) : 0)
+// Five levels to a set: four boards and then a duel. Levels are named for
+// where they sit — 1-1 through 1-5, then 2-1 — so the shape of a run is
+// legible without counting.
+export const LEVELS_PER_SET = 5
+export const setOf = level => Math.floor((Math.max(1, level) - 1) / LEVELS_PER_SET) + 1
+export const positionInSet = level => ((Math.max(1, level) - 1) % LEVELS_PER_SET) + 1
+export const isBossLevel = level => positionInSet(level) === LEVELS_PER_SET
+export const bossNumber = level => (isBossLevel(level) ? setOf(level) : 0)
+export const levelName = level => `${setOf(level)}-${positionInSet(level)}`
 
 export function nextBossLevel(from) {
   let level = Math.max(1, Math.floor(from)) + 1
@@ -28,8 +30,12 @@ export function nextBossLevel(from) {
   return level
 }
 
-// Which of the repeating layouts a level shows, counting past the boss levels
-// that interrupt them.
+// How far into the run a level is, in sets. Everything that gets harder gets
+// harder by this and nothing else.
+const difficultyOf = level => setOf(level) - 1
+
+// Which board a level shows, counting past the bosses and past 1-1, which is
+// deliberately empty.
 const layoutOrdinal = level => level - 2 - Math.floor((level - 1) / LEVELS_PER_SET)
 
 export const BOSS_FIGHT = "fight"
@@ -40,11 +46,14 @@ export const BOSS_FATALITY = "fatality"
 // the threat instead, which sounds right and plays terribly — a boss cannot
 // turn towards something it is already next to, because the cell it would
 // have to step into is the thing itself, so it sidles along beside you with
-// its head pointed somewhere else. That makes every approach a safe one and
-// quietly deletes the only way to lose.
+// its head pointed somewhere else.
 const BOSS_ALERT_RANGE = 4
 const FINISH_WINDOW_MS = 5000
 const FATALITY_MS = 2400
+// How long two snakes see stars after running into each other head-on, and how
+// long the boss spends backing off afterwards.
+const DIZZY_MS = 1100
+const BOSS_FLEE_TICKS = 8
 const COMBO_DURATION_MS = 2000
 const BEAT_WINDOW_MS = 190
 const NEAR_MISS_WINDOW_MS = 900
@@ -63,17 +72,8 @@ const has = (list, p) => list.some(cell => same(cell, p))
 // Level progression
 // ---------------------------------------------------------------------------
 
-// Every set the board gets one more apple to clear, one narrower gap, and one
-// faster tick. `cycle` is how many full sets of layouts have passed; a boss
-// belongs to the set it closes, not the one it opens.
-const cycleOf = level => {
-  if (level <= 1) return 0
-  if (isBossLevel(level)) return bossNumber(level) - 1
-  return Math.floor(layoutOrdinal(level) / LAYOUTS_PER_CYCLE)
-}
-
 export function pointsForLevel(level) {
-  return POINTS_PER_LEVEL + cycleOf(level)
+  return POINTS_PER_LEVEL + Math.floor(difficultyOf(level) / 2)
 }
 
 export function scoreForLevel(level) {
@@ -92,55 +92,112 @@ export function levelForScore(score) {
 // Obstacle layouts
 // ---------------------------------------------------------------------------
 
+// Twelve boards, each drawn in four orientations, is forty-eight arrangements
+// before anything repeats — and by then the gaps have closed and it does not
+// look like the same board anyway.
+const BASE_LAYOUTS = 12
+const ORIENTATIONS = 4
+
 const layoutCache = new Map()
 
-// Eight layouts that repeat, with the gaps closing by one cell per cycle. The
-// returned array is cached and shared: treat it as read-only.
+const gapForLevel = level => Math.max(2, 4 - Math.floor(difficultyOf(level) / 3))
+
+// Mirrored horizontally, vertically or both. A layout the player has learned
+// comes back the other way round rather than identically.
+function orient(cells, orientation) {
+  if (!orientation) return cells
+  return cells.map(cell => point(
+    orientation & 1 ? COLUMNS - 1 - cell.x : cell.x,
+    orientation & 2 ? ROWS - 1 - cell.y : cell.y
+  ))
+}
+
+function baseLayout(kind, gap) {
+  const cells = []
+  const cx = Math.floor(COLUMNS / 2)
+  const cy = Math.floor(ROWS / 2)
+  const half = Math.floor(gap / 2)
+  const hbar = (y, gapX, x0, x1) => {
+    for (let x = x0; x <= x1; ++x) if (x < gapX || x >= gapX + gap) cells.push(point(x, y))
+  }
+  const vbar = (x, gapY, y0, y1) => {
+    for (let y = y0; y <= y1; ++y) if (y < gapY || y >= gapY + gap) cells.push(point(x, y))
+  }
+  const block = (x0, y0, width, height) => {
+    for (let x = x0; x < x0 + width; ++x)
+      for (let y = y0; y < y0 + height; ++y)
+        if (x >= 0 && x < COLUMNS && y >= 0 && y < ROWS) cells.push(point(x, y))
+  }
+
+  if (kind === 0) hbar(cy, cx - half, 2, COLUMNS - 3)
+  else if (kind === 1) vbar(cx, cy - half, 2, ROWS - 3)
+  else if (kind === 2) {
+    hbar(Math.floor(ROWS / 3), 2, 2, COLUMNS - 3)
+    hbar(Math.floor((ROWS * 2) / 3), COLUMNS - 2 - gap, 2, COLUMNS - 3)
+  } else if (kind === 3) {
+    hbar(cy, cx - half, 2, COLUMNS - 3)
+    vbar(cx, cy - half, 2, ROWS - 3)
+  } else if (kind === 4) {
+    const y0 = 2, y1 = ROWS - 3, x0 = 3, x1 = COLUMNS - 4
+    for (let x = x0; x <= x1; ++x) cells.push(point(x, y0), point(x, y1))
+    for (let y = y0 + 1; y < y1; ++y) {
+      cells.push(point(x0, y))
+      if (y < y1 - gap) cells.push(point(x1, y))
+    }
+  } else if (kind === 5) {
+    for (let i = 0; i < 6; ++i)
+      cells.push(point(3 + i, 3 + i), point(COLUMNS - 4 - i, ROWS - 4 - i))
+  } else if (kind === 6) {
+    for (let x = 3; x <= COLUMNS - 4; x += 3)
+      for (let y = 2; y <= ROWS - 3; y += 3) if ((x + y) % 2 === 0) cells.push(point(x, y))
+  } else if (kind === 7) {
+    hbar(4, 2, 2, 8)
+    hbar(ROWS - 5, COLUMNS - 9, 7, COLUMNS - 3)
+  } else if (kind === 8) {
+    // Blocks in the corners and one in the middle: open, but never straight.
+    block(3, 2, 3, 2)
+    block(COLUMNS - 6, 2, 3, 2)
+    block(3, ROWS - 4, 3, 2)
+    block(COLUMNS - 6, ROWS - 4, 3, 2)
+    block(cx - 1, cy - 1, 3, 2)
+  } else if (kind === 9) {
+    // A room with one way in.
+    const x0 = 5, x1 = COLUMNS - 6, y0 = 4, y1 = ROWS - 5
+    const doorway = cx - half
+    for (let x = x0; x <= x1; ++x) {
+      if (x < doorway || x >= doorway + gap) cells.push(point(x, y0))
+      cells.push(point(x, y1))
+    }
+    for (let y = y0 + 1; y < y1; ++y) cells.push(point(x0, y), point(x1, y))
+  } else if (kind === 10) {
+    // A staircase, which is a diagonal you cannot cut.
+    for (let i = 0; i < 4; ++i) {
+      const x = 3 + i * 5
+      const y = 3 + i * 3
+      for (let k = 0; k < 4 && x + k <= COLUMNS - 3; ++k) cells.push(point(x + k, y))
+      if (y + 1 <= ROWS - 3) cells.push(point(x, y + 1))
+    }
+  } else {
+    // Three uprights with their gaps at different heights.
+    vbar(4, 2, 2, ROWS - 3)
+    vbar(cx, cy - half, 2, ROWS - 3)
+    vbar(COLUMNS - 5, ROWS - 3 - gap, 2, ROWS - 3)
+  }
+  return cells
+}
+
+// The returned array is cached and shared: treat it as read-only.
 export function obstacleCells(level) {
   const cached = layoutCache.get(level)
   if (cached) return cached
 
-  const cells = []
-  // A boss fight is fought in an empty arena. There is enough in the way.
-  if (level > 1 && !isBossLevel(level)) {
-    const cx = Math.floor(COLUMNS / 2)
-    const cy = Math.floor(ROWS / 2)
-    const gap = Math.max(2, 4 - cycleOf(level))
-    const kind = layoutOrdinal(level) % LAYOUTS_PER_CYCLE
-    const hbar = (y, gapX, x0, x1) => {
-      for (let x = x0; x <= x1; ++x) if (x < gapX || x >= gapX + gap) cells.push(point(x, y))
-    }
-    const vbar = (x, gapY, y0, y1) => {
-      for (let y = y0; y <= y1; ++y) if (y < gapY || y >= gapY + gap) cells.push(point(x, y))
-    }
-    const half = Math.floor(gap / 2)
-
-    if (kind === 0) hbar(cy, cx - half, 2, COLUMNS - 3)
-    else if (kind === 1) vbar(cx, cy - half, 2, ROWS - 3)
-    else if (kind === 2) {
-      hbar(Math.floor(ROWS / 3), 2, 2, COLUMNS - 3)
-      hbar(Math.floor((ROWS * 2) / 3), COLUMNS - 2 - gap, 2, COLUMNS - 3)
-    } else if (kind === 3) {
-      hbar(cy, cx - half, 2, COLUMNS - 3)
-      vbar(cx, cy - half, 2, ROWS - 3)
-    } else if (kind === 4) {
-      const y0 = 2, y1 = ROWS - 3, x0 = 3, x1 = COLUMNS - 4
-      for (let x = x0; x <= x1; ++x) cells.push(point(x, y0), point(x, y1))
-      for (let y = y0 + 1; y < y1; ++y) {
-        cells.push(point(x0, y))
-        if (y < y1 - gap) cells.push(point(x1, y))
-      }
-    } else if (kind === 5) {
-      for (let i = 0; i < 6; ++i)
-        cells.push(point(3 + i, 3 + i), point(COLUMNS - 4 - i, ROWS - 4 - i))
-    } else if (kind === 6) {
-      for (let x = 3; x <= COLUMNS - 4; x += 3)
-        for (let y = 2; y <= ROWS - 3; y += 3) if ((x + y) % 2 === 0) cells.push(point(x, y))
-    } else {
-      hbar(4, 2, 2, 8)
-      hbar(ROWS - 5, COLUMNS - 9, 7, COLUMNS - 3)
-    }
-  }
+  // 1-1 is empty on purpose, and a duel is fought in a clear arena.
+  const cells = level <= 1 || isBossLevel(level)
+    ? []
+    : orient(
+      baseLayout(layoutOrdinal(level) % BASE_LAYOUTS, gapForLevel(level)),
+      Math.floor(layoutOrdinal(level) / BASE_LAYOUTS) % ORIENTATIONS
+    )
 
   layoutCache.set(level, cells)
   return cells
@@ -243,6 +300,42 @@ export function matchFatality(inputs) {
   return null
 }
 
+export function boardDistanceBetween(a, b, wrap) {
+  const dx = Math.abs(a.x - b.x)
+  const dy = Math.abs(a.y - b.y)
+  return wrap
+    ? Math.min(dx, COLUMNS - dx) + Math.min(dy, ROWS - dy)
+    : dx + dy
+}
+
+// Away from whatever it has just headbutted, for as long as it is still
+// seeing stars about it. Same rules as a chase, opposite objective.
+export function nextBossFleeStep(boss, from, blocked, wrap) {
+  if (!boss.length) return null
+  const neck = boss[1]
+  const body = boss.slice(0, Math.max(0, boss.length - 1))
+  let best = null
+  let bestDistance = -Infinity
+  for (const direction of [point(1, 0), point(-1, 0), point(0, 1), point(0, -1)]) {
+    const candidate = point(boss[0].x + direction.x, boss[0].y + direction.y)
+    if (wrap) {
+      candidate.x = (candidate.x + COLUMNS) % COLUMNS
+      candidate.y = (candidate.y + ROWS) % ROWS
+    } else if (candidate.x < 0 || candidate.x >= COLUMNS || candidate.y < 0 || candidate.y >= ROWS) {
+      continue
+    }
+    if (neck && same(candidate, neck)) continue
+    if (has(body, candidate)) continue
+    if (has(blocked, candidate)) continue
+    const distance = boardDistanceBetween(candidate, from, wrap)
+    if (distance > bestDistance) {
+      best = candidate
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
 // One step of the boss towards its target. It will not doubled back through
 // its own neck, will not walk into a body, and holds still when boxed in
 // rather than dying on the spot.
@@ -329,6 +422,8 @@ export class Game {
     this.bossPace = 0
     this.finishRemainingMs = 0
     this.fatalityRemainingMs = 0
+    this.dizzyMs = 0
+    this.bossFleeTicks = 0
     this.finisherInputs = []
     this.fatality = null
 
@@ -475,7 +570,7 @@ export class Game {
 
   // Endless keeps one speed. Levels quickens by a cycle, never past 55 ms.
   get tickInterval() {
-    return this.endlessMode ? 140 : Math.max(55, 140 - cycleOf(this.level) * 7)
+    return this.endlessMode ? 140 : Math.max(55, 140 - difficultyOf(this.level) * 5)
   }
 
   get comboProgress() {
@@ -615,6 +710,8 @@ export class Game {
     this.bossPace = 0
     this.finishRemainingMs = 0
     this.fatalityRemainingMs = 0
+    this.dizzyMs = 0
+    this.bossFleeTicks = 0
     this.finisherInputs = []
     this.fatality = null
     if (!this.bossLevel || this.endlessMode) return
@@ -635,6 +732,7 @@ export class Game {
   // until the snake gets close enough to be the more pressing problem.
   moveBoss() {
     if (this.bossPhase !== BOSS_FIGHT || this.boss.length < 2 || !this.snake.length) return
+    if (this.dizzyMs > 0) return
     const alert = this.bossAlert
     const number = bossNumber(this.displayedLevel)
     ++this.bossPace
@@ -657,7 +755,11 @@ export class Game {
     // its head is fatal by construction: the boss gets a move after yours, and
     // stepping onto your head would usually be its shortest way to your tail.
     const blocked = [...this.snake.slice(0, Math.max(0, this.snake.length - 1)), ...this.huskCells]
-    const step = nextBossStep(this.boss, tail, blocked, this.wallsWrap)
+    // Still shaking it off: it wants distance rather than dinner.
+    const step = this.bossFleeTicks > 0
+      ? nextBossFleeStep(this.boss, this.snake[0], blocked, this.wallsWrap)
+      : nextBossStep(this.boss, tail, blocked, this.wallsWrap)
+    if (this.bossFleeTicks > 0) --this.bossFleeTicks
     if (!step) return false
 
     this.boss.unshift(step)
@@ -668,6 +770,7 @@ export class Game {
     // The last block is the head, so being eaten down to nothing ends here.
     if (this.snake.length <= 1) {
       this.emit("snakeBitten", step.x, step.y)
+      this.emit("eatenByBoss", step.x, step.y)
       this.finish()
       return false
     }
@@ -699,6 +802,20 @@ export class Game {
     this.awardPoints(1)
     this.emit("bossBitten", at.x, at.y, 1, behind.length > 0)
     this.beginFinish()
+  }
+
+  // Both stop where they are; when it wears off the boss wants to be
+  // somewhere else for a while, which is what separates them.
+  collideHeads(at) {
+    this.dizzyMs = DIZZY_MS
+    this.bossFleeTicks = BOSS_FLEE_TICKS
+    this.turnQueue = []
+    this.emit("headsCollided", at.x, at.y)
+    this.emit("statusChanged")
+  }
+
+  get dizzy() {
+    return this.dizzyMs > 0
   }
 
   beginFinish() {
@@ -794,6 +911,11 @@ export class Game {
   // length of the finish itself.
   advanceBoss(milliseconds) {
     if (milliseconds <= 0) return
+    if (this.dizzyMs > 0) {
+      this.dizzyMs = Math.max(0, this.dizzyMs - milliseconds)
+      if (this.dizzyMs === 0) this.emit("statusChanged")
+      return
+    }
     if (this.bossPhase === BOSS_FINISH) {
       this.finishRemainingMs = Math.max(0, this.finishRemainingMs - milliseconds)
       if (this.finishRemainingMs === 0) this.performFatality(MERCY)
@@ -952,8 +1074,10 @@ export class Game {
   tick() {
     if (!this.running || this.gameOver || this.levelTransition || !this.snake.length) return
     // Everything holds still while the boss is down and the finish is being
-    // decided. That is the whole drama of it.
+    // decided. That is the whole drama of it — and again, more briefly, while
+    // the two of them are seeing stars.
     if (this.bossPhase === BOSS_FINISH || this.bossPhase === BOSS_FATALITY) return
+    if (this.dizzyMs > 0) return
 
     const previousDirection = this.direction
     if (this.turnQueue.length) this.direction = this.turnQueue.shift()
@@ -975,8 +1099,8 @@ export class Game {
     const bossIndex = this.boss.findIndex(cell => same(cell, head))
     const bitesBoss = bossIndex > 0
     const meetsBossHead = bossIndex === 0
-    const devoured = meetsBossHead && this.boss.length > 1 && this.facesHeadOn(this.direction)
-    const takesBossHead = meetsBossHead && !devoured
+    const headButt = meetsBossHead && this.boss.length > 1 && this.facesHeadOn(this.direction)
+    const takesBossHead = meetsBossHead && !headButt
     const huskHit = this.findHusk(head)
     const hitsDiscoBall = same(head, this.discoBall)
     const hitsSnakeEater = same(head, this.snakeEater)
@@ -995,9 +1119,15 @@ export class Game {
         break
       }
     }
-    if (this.isObstacle(head) || hitsSelf || devoured) {
-      if (devoured) this.emit("devoured", head.x, head.y)
+    if (this.isObstacle(head) || hitsSelf) {
       this.finish()
+      return
+    }
+
+    // Two snakes going for the same cell nose first. Nobody wins that, and
+    // nobody dies of it either: they both see stars and back off.
+    if (headButt) {
+      this.collideHeads(head)
       return
     }
 

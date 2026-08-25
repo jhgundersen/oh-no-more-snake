@@ -92,12 +92,21 @@ These come from the Qt version and hold here too.
   Gates were removed because they appeared under a moving snake and ended runs
   that had done nothing wrong. `beatWindowMs` stays — Beat Eater, Perfect
   Timing and Dance Floor all read it — but nothing it opens may be lethal.
-- A boss level is an extra level, never a replacement for a layout: all eight
-  are still seen once per set. `layoutOrdinal` is what counts past them, and
-  `levelThresholds` and the layout tests are what catch it if that slips.
+- Levels come in sets of five, named `set-position`: 1-1 to 1-4 are boards and
+  1-5 is a duel. `layoutOrdinal` counts past the bosses and past 1-1, which is
+  empty on purpose. Difficulty rides on `difficultyOf` — the set number, and
+  nothing else — while the board shape rides on the layout ordinal, so variety
+  and difficulty can be tuned without disturbing each other.
+- A layout must always leave the snake somewhere to spawn. `findSpawn` falls
+  back to a fixed cell, which on a crowded board means spawning inside a wall;
+  the spawn test is what catches a new shape that does that.
 - A boss level is cleared by winning, not by scoring, so `level` is pinned to
   `displayedLevel` for the duration. Without that a lucky run of apples during
   a duel starts the next level on top of the boss.
+- A duel is lost by being eaten and by nothing else. Running into the boss
+  nose first used to end the run; it now stuns both of them, cancels the move
+  and sends the boss backing off. Anything that makes a headbutt fatal again
+  is a regression.
 - A boss's body never kills by being touched: it splits when bitten, and what
   comes off drifts as a headless husk that can also be eaten. Only its mouth
   is lethal. Reaching the head from the side or behind wins outright; reaching

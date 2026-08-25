@@ -4,6 +4,8 @@
 // Endless, whether Party Mode was on, and when it ended — there is no name to
 // enter and nowhere to put one.
 
+import { levelName } from "./Game.js"
+
 const ENDPOINT = "api/scores"
 const RUNS_ENDPOINT = "api/runs"
 const PENDING_KEY = "omasnake/scores/pending"
@@ -143,7 +145,7 @@ export function relativeTime(value, now = Date.now()) {
 
 // The shape of a run, for the line under the score.
 export function describeRun(entry) {
-  const parts = [entry.mode === "endless" ? "Endless" : `Level ${entry.level}`]
+  const parts = [entry.mode === "endless" ? "Endless" : `Level ${levelName(entry.level)}`]
   if (entry.party) parts.push("Party")
   return parts.join(" · ")
 }

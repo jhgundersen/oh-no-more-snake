@@ -4,7 +4,7 @@
 // not drawing. The animation constants, easing curves and the order effects
 // fire in are all from there, because they are what the game feels like.
 
-import { COLUMNS, ROWS, Game, bossNumber, nextBossLevel } from "./Game.js"
+import { COLUMNS, ROWS, Game, bossNumber, levelName, nextBossLevel } from "./Game.js"
 import { MusicController } from "./Audio.js"
 import { draw, drawBossSplash, drawSplash, boardSize } from "./Draw.js"
 import { FATALITIES, bossFor } from "./Bosses.js"
@@ -361,12 +361,16 @@ game.on("bossBitten", (x, y, remaining) => showEnemyBurst(remaining > 1 ? "−1 
 
 game.on("bossFinishReady", () => announce("Finish him. Press a direction combination."))
 
-// Losing to the jaws deserves to say why, rather than drawing a line from the
-// ordinary pool and leaving the rule to be guessed at twice.
-game.on("devoured", (x, y) => {
+// Running into each other nose first: worth announcing, since it looks like
+// it should have been fatal and deliberately is not.
+game.on("headsCollided", (x, y) => showEnemyBurst("HEADBUTT", x, y))
+
+// The only way a duel is lost, so it says which one lost it rather than
+// drawing a line from the ordinary pool.
+game.on("eatenByBoss", (x, y) => {
   const boss = bossFor(bossNumber(game.displayedLevel))
-  pendingGameOverMessage = `${boss.name} was facing you. That is what the eyes are for.`
-  showEnemyBurst("DEVOURED", x, y)
+  pendingGameOverMessage = `${boss.name} ate the last of you. Nothing left to steer.`
+  showEnemyBurst("EATEN", x, y)
 })
 
 game.on("bossFatality", (name, flavour) => announce(`${name}. ${flavour}`))
@@ -814,7 +818,7 @@ const timeText = seconds => {
 function updateHud() {
   el("level").textContent = game.endlessMode
     ? "ENDLESS"
-    : game.bossLevel ? bossFor(bossNumber(game.displayedLevel)).name : `LEVEL ${game.level}`
+    : game.bossLevel ? bossFor(bossNumber(game.displayedLevel)).name : `LEVEL ${levelName(game.level)}`
   el("score").textContent = `SCORE ${game.score}${game.best ? `  ·  BEST ${game.best}` : ""}`
 
   document.body.classList.toggle("party", music.enabled)

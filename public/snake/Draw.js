@@ -7,7 +7,7 @@
 // Everything here reads state and draws it. Timers, input and animation values
 // belong to web.js; game rules belong to Game.js.
 
-import { COLUMNS, ROWS } from "./Game.js"
+import { COLUMNS, ROWS, levelName } from "./Game.js"
 import { spectrumRange } from "./Audio.js"
 import { bossFor, drawPortrait } from "./Bosses.js"
 import { mixColors, parseColor, rgba } from "./Palette.js"
@@ -342,6 +342,14 @@ export function draw(ctx, view) {
     ctx.globalAlpha = 1
   }
 
+  // Two snakes seeing stars after running into each other.
+  if (game.dizzy) {
+    for (const head of [game.snake[0], game.boss[0]]) {
+      if (!head) continue
+      drawStars(ctx, (head.x + 0.5) * cell, (head.y + 0.5) * cell - cell * 0.7, cell)
+    }
+  }
+
   // --- the finish ---
 
   // Never underneath GAME OVER: whichever ended the run is the one to read.
@@ -355,10 +363,10 @@ export function draw(ctx, view) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.667)"
     ctx.fillRect(0, 0, width, height)
     const title = game.levelTransition
-      ? `LEVEL ${game.completedLevel} CLEARED`
+      ? `LEVEL ${levelName(game.completedLevel)} CLEARED`
       : game.gameOver ? "GAME OVER" : "PAUSED"
     const subtitle = game.levelTransition
-      ? `Level ${game.level} incoming`
+      ? `Level ${levelName(game.level)} incoming`
       : game.gameOver ? "Space to restart" : "Space to resume"
     const message = game.levelTransition ? view.levelMessage : game.gameOver ? view.gameOverMessage : ""
 
@@ -380,6 +388,29 @@ export function draw(ctx, view) {
   }
 
   ctx.restore()
+}
+
+// Three little stars going round, which is the whole vocabulary of dizzy.
+function drawStars(ctx, x, y, cell) {
+  const spin = performance.now() / 260
+  for (let i = 0; i < 3; ++i) {
+    const angle = spin + (i * Math.PI * 2) / 3
+    const px = x + Math.cos(angle) * cell * 0.42
+    const py = y + Math.sin(angle) * cell * 0.18
+    const size = cell * (0.1 + 0.04 * Math.sin(spin * 2 + i))
+    ctx.fillStyle = "#f7e8a0"
+    ctx.beginPath()
+    for (let point = 0; point < 10; ++point) {
+      const reach = point % 2 === 0 ? size : size * 0.45
+      const a = (point / 10) * Math.PI * 2 - Math.PI / 2
+      const cx = px + Math.cos(a) * reach
+      const cy = py + Math.sin(a) * reach
+      if (point === 0) ctx.moveTo(cx, cy)
+      else ctx.lineTo(cx, cy)
+    }
+    ctx.closePath()
+    ctx.fill()
+  }
 }
 
 // The rival. Darker and colder than the snake, with its tail marked, because
@@ -482,7 +513,7 @@ function drawEatHim(ctx, view, width) {
   ctx.globalAlpha = 0.3 + pulse * 0.3
   label(ctx, "EAT HIM!", width / 2, top, Math.max(13, cell * 0.62), theme.foreground, { spacing: 2 })
   ctx.globalAlpha = 0.42
-  label(ctx, "never head-on", width / 2, top + Math.max(12, cell * 0.5), Math.max(9, cell * 0.36), theme.muted, { bold: false })
+  label(ctx, "not head-on — he'll butt you back", width / 2, top + Math.max(12, cell * 0.5), Math.max(9, cell * 0.36), theme.muted, { bold: false })
   ctx.globalAlpha = 1
 }
 

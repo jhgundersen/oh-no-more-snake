@@ -12,6 +12,9 @@ import {
   Game,
   bossLength,
   bossNumber,
+  levelName,
+  positionInSet,
+  setOf,
   directionName,
   isBossLevel,
   matchFatality,
@@ -63,10 +66,11 @@ test("level thresholds", () => {
   assert.equal(levelForScore(11), 1)
   assert.equal(levelForScore(12), 2)
   assert.equal(scoreForLevel(3), 24)
-  // Level 10 is the first boss, and a boss belongs to the set it closes, so it
-  // is still worth what that set's levels were worth. Level 11 opens the next.
-  assert.equal(pointsForLevel(10), 12)
+  // A level costs one more apple every second set.
+  assert.equal(pointsForLevel(1), 12)
+  assert.equal(pointsForLevel(5), 12)
   assert.equal(pointsForLevel(11), 13)
+  assert.equal(pointsForLevel(21), 14)
 })
 
 test("obstacle layouts stay in bounds", () => {
@@ -256,16 +260,20 @@ test("clearing a level starts a transition and the next level respawns", () => {
 test("endless mode holds one speed and levels quicken by set", () => {
   const game = fresh()
   assert.equal(game.tickInterval, 140)
-  game.displayedLevel = 10 // The first boss, fought at the pace it just closed.
+  game.displayedLevel = 5 // still the first set, boss included
   assert.equal(game.tickInterval, 140)
-  game.displayedLevel = 11
-  assert.equal(game.tickInterval, 133)
-  game.displayedLevel = 19 // Second boss.
-  assert.equal(game.tickInterval, 133)
-  game.displayedLevel = 20
-  assert.equal(game.tickInterval, 126)
+  game.displayedLevel = 6 // 2-1
+  assert.equal(game.tickInterval, 135)
+  game.displayedLevel = 11 // 3-1
+  assert.equal(game.tickInterval, 130)
   game.endlessMode = true
   assert.equal(game.tickInterval, 140)
+})
+
+test("levels are named for where they sit in their set", () => {
+  assert.deepEqual([1, 4, 5, 6, 10, 11].map(levelName), ["1-1", "1-4", "1-5", "2-1", "2-5", "3-1"])
+  assert.equal(setOf(7), 2)
+  assert.equal(positionInSet(7), 2)
 })
 
 test("borders wrap until told otherwise", () => {
@@ -308,30 +316,35 @@ test("best scores are kept apart per mode and survive a reload", () => {
 
 // --- boss fights ------------------------------------------------------------
 
-test("a boss closes every set, and the layouts run past it", () => {
+test("every fifth level is a duel", () => {
   assert.ok(!isBossLevel(1))
-  assert.ok(!isBossLevel(9))
+  assert.ok(!isBossLevel(4))
+  assert.ok(isBossLevel(5))
+  assert.ok(!isBossLevel(6))
   assert.ok(isBossLevel(10))
-  assert.ok(!isBossLevel(11))
-  assert.ok(isBossLevel(19))
-  assert.ok(isBossLevel(28))
-  assert.equal(bossNumber(10), 1)
-  assert.equal(bossNumber(19), 2)
-  assert.equal(bossNumber(11), 0)
+  assert.ok(isBossLevel(15))
+  assert.equal(bossNumber(5), 1)
+  assert.equal(bossNumber(10), 2)
+  assert.equal(bossNumber(6), 0)
+})
 
-  // Every one of the eight layouts is still seen once per set: the boss is an
-  // extra level, not a replacement for one of them.
-  const first = new Set()
-  const second = new Set()
-  for (let level = 2; level <= 9; ++level) first.add(JSON.stringify(obstacleCells(level)))
-  for (let level = 11; level <= 18; ++level) second.add(JSON.stringify(obstacleCells(level)))
-  assert.equal(first.size, 8)
-  assert.equal(second.size, 8)
+test("the boards keep changing for a long time", () => {
+  // Twelve shapes in four orientations, and the gaps close on top of that.
+  // What matters is that a player does not see the same board twice for ages.
+  const seen = new Set()
+  for (let level = 2; level <= 200; ++level) {
+    if (isBossLevel(level)) continue
+    seen.add(JSON.stringify(obstacleCells(level)))
+  }
+  assert.ok(seen.size >= 48, `only ${seen.size} distinct boards in the first 200 levels`)
+
+  // And 1-1 is deliberately empty.
+  assert.deepEqual(obstacleCells(1), [])
 })
 
 test("a boss arena is empty and a boss gets longer each time", () => {
+  assert.deepEqual(obstacleCells(5), [])
   assert.deepEqual(obstacleCells(10), [])
-  assert.deepEqual(obstacleCells(19), [])
   assert.equal(bossLength(1), 8)
   assert.equal(bossLength(2), 10)
   assert.ok(bossLength(99) <= 16, "and never longer than most of a row")
@@ -362,8 +375,8 @@ test("the boss steps towards its target without eating itself", () => {
 
 test("reaching the boss's head wins the fight outright", () => {
   const game = fresh()
-  game.score = scoreForLevel(10)
-  game.displayedLevel = 10
+  game.score = scoreForLevel(5)
+  game.displayedLevel = 5
   game.prepareNextLevel = () => {}
   game.spawnBoss()
   assert.equal(game.bossPhase, "fight")
@@ -389,7 +402,7 @@ test("reaching the boss's head wins the fight outright", () => {
 
 test("the boss eats you down, and the last block is the last block", () => {
   const game = fresh()
-  game.displayedLevel = 10
+  game.displayedLevel = 5
   game.wallsWrap = false
   game.spawnBoss()
   // Boss head one step from the snake's tail, the snake pointing away.
@@ -415,7 +428,7 @@ test("the boss eats you down, and the last block is the last block", () => {
 
 test("the boss goes around the head and takes the tail", () => {
   const game = fresh()
-  game.displayedLevel = 10
+  game.displayedLevel = 5
   game.wallsWrap = false
   game.spawnBoss()
   // Its head sits beside the snake's head, with the snake's tail beyond.
@@ -427,11 +440,11 @@ test("the boss goes around the head and takes the tail", () => {
   assert.notDeepEqual(game.boss[0], { x: 10, y: 8 }, "and the head is not somewhere it may step")
 })
 
-test("the head is taken from the side, and taken head-on takes you", () => {
-  const setup = approach => {
+test("the head is taken from the side; head-on just bounces", () => {
+  const setup = () => {
     const game = fresh()
-    game.score = scoreForLevel(10)
-    game.displayedLevel = 10
+    game.score = scoreForLevel(5)
+    game.displayedLevel = 5
     game.wallsWrap = false
     game.prepareNextLevel = () => {}
     game.spawnBoss()
@@ -442,50 +455,67 @@ test("the head is taken from the side, and taken head-on takes you", () => {
     return game
   }
 
-  // Straight down its throat.
+  // Nose to nose: nobody wins and nobody dies.
   const headOn = setup()
   assert.deepEqual(headOn.bossFacing, { x: -1, y: 0 })
   headOn.snake = [{ x: 9, y: 8 }, { x: 8, y: 8 }, { x: 7, y: 8 }]
   headOn.direction = { x: 1, y: 0 }
   headOn.tick()
-  assert.ok(headOn.gameOver, "it was looking right at you")
+  assert.ok(!headOn.gameOver, "a headbutt is not fatal")
+  assert.ok(headOn.dizzy, "it is stunning")
+  assert.equal(headOn.bossPhase, "fight", "and it wins nothing")
+  assert.deepEqual(headOn.snake[0], { x: 9, y: 8 }, "the move is cancelled")
 
   // The same head, reached from underneath.
   const fromBelow = setup()
   fromBelow.snake = [{ x: 10, y: 9 }, { x: 10, y: 10 }, { x: 10, y: 11 }]
   fromBelow.direction = { x: 0, y: -1 }
   fromBelow.tick()
-  assert.ok(!fromBelow.gameOver, "it never saw you coming")
-  assert.equal(fromBelow.bossPhase, "finish")
+  assert.ok(!fromBelow.gameOver)
+  assert.equal(fromBelow.bossPhase, "finish", "it never saw you coming")
 })
 
-test("being devoured says so", () => {
+test("a headbutt separates them instead of ending anything", () => {
   const game = fresh()
-  game.displayedLevel = 10
+  game.score = scoreForLevel(5)
+  game.displayedLevel = 5
   game.wallsWrap = false
+  game.prepareNextLevel = () => {}
   game.spawnBoss()
-  game.boss = [{ x: 10, y: 8 }, { x: 11, y: 8 }, { x: 12, y: 8 }]
+  game.boss = [{ x: 10, y: 8 }, { x: 11, y: 8 }, { x: 12, y: 8 }, { x: 13, y: 8 }]
   game.bossPace = 2
   game.snake = [{ x: 9, y: 8 }, { x: 8, y: 8 }, { x: 7, y: 8 }]
   game.direction = { x: 1, y: 0 }
   game.food = { x: 2, y: 14 }
-  let told = null
-  game.on("devoured", (x, y) => (told = { x, y }))
-  game.tick()
-  assert.deepEqual(told, { x: 10, y: 8 })
-})
+  let bumped = null
+  game.on("headsCollided", (x, y) => (bumped = { x, y }))
 
-test("a boss with nothing but a head left has no jaws to speak of", () => {
-  // At one segment the fight is already over; the finish owns it from there.
-  const game = fresh()
-  game.displayedLevel = 10
-  game.boss = [{ x: 10, y: 8 }]
-  assert.deepEqual(game.bossFacing, { x: -1, y: 0 })
+  game.tick()
+  assert.deepEqual(bumped, { x: 10, y: 8 })
+
+  // Nothing moves while they are seeing stars.
+  const held = { snake: { ...game.snake[0] }, boss: { ...game.boss[0] } }
+  game.tick()
+  assert.deepEqual(game.snake[0], held.snake)
+  assert.deepEqual(game.boss[0], held.boss)
+
+  game.advanceBoss(1200)
+  assert.ok(!game.dizzy)
+
+  // And then it wants to be somewhere else.
+  game.turn(0, 1)
+  const apart = []
+  for (let i = 0; i < 5; ++i) {
+    game.tick()
+    apart.push(game.boardDistance(game.boss[0], game.snake[0]))
+  }
+  assert.ok(apart[apart.length - 1] > apart[0], `expected them to separate, got ${apart}`)
+  assert.ok(!game.gameOver)
 })
 
 test("a bite through the middle cuts the boss in two", () => {
   const game = fresh()
-  game.displayedLevel = 10
+  game.displayedLevel = 5
   game.spawnBoss()
   const length = game.boss.length
   const middle = 3
@@ -537,8 +567,8 @@ test("a husk drifts, and never through the boss or the snake", () => {
 
 test("eating the boss down to its head calls for a finish, and winning clears the level", () => {
   const game = fresh()
-  game.score = scoreForLevel(10)
-  game.displayedLevel = 10
+  game.score = scoreForLevel(5)
+  game.displayedLevel = 5
   game.spawnBoss()
   const cleared = []
   game.on("levelCompleted", level => cleared.push(level))
@@ -558,15 +588,15 @@ test("eating the boss down to its head calls for a finish, and winning clears th
 
   game.advanceBoss(2500)
   assert.equal(game.bossPhase, "none")
-  assert.deepEqual(cleared, [10])
+  assert.deepEqual(cleared, [5])
   assert.ok(game.levelTransition)
-  assert.ok(game.score >= scoreForLevel(11), "the win pays for the level it cleared")
+  assert.ok(game.score >= scoreForLevel(6), "the win pays for the level it cleared")
 })
 
 test("hesitating still finishes it, just worse", () => {
   const game = fresh()
-  game.score = scoreForLevel(10)
-  game.displayedLevel = 10
+  game.score = scoreForLevel(5)
+  game.displayedLevel = 5
   game.spawnBoss()
   while (game.boss.length > 1) game.biteBoss(game.boss[game.boss.length - 1])
   game.advanceBoss(5000)
@@ -576,11 +606,11 @@ test("hesitating still finishes it, just worse", () => {
 
 test("a duel pins the level, so apples cannot end it early", () => {
   const game = fresh()
-  game.score = scoreForLevel(10)
-  game.displayedLevel = 10
+  game.score = scoreForLevel(5)
+  game.displayedLevel = 5
   game.spawnBoss()
   game.awardPoints(40) // Far past what the next level would need.
-  assert.equal(game.level, 10)
+  assert.equal(game.level, 5)
   assert.ok(!game.levelTransition, "only the boss ends a boss level")
 })
 
@@ -591,9 +621,9 @@ test("a practice run counts for nothing", () => {
     setItem: (key, value) => memory.set(key, String(value))
   }
   const game = new Game({ store })
-  game.jumpToLevel(10)
+  game.jumpToLevel(5)
   assert.ok(game.practiceRun)
-  assert.equal(game.displayedLevel, 10)
+  assert.equal(game.displayedLevel, 5)
   assert.ok(game.boss.length > 1, "and lands in the fight")
 
   game.finish()
@@ -609,7 +639,7 @@ test("a practice run counts for nothing", () => {
 
 test("the boss cannot be bitten after the run has ended", () => {
   const game = fresh()
-  game.jumpToLevel(10)
+  game.jumpToLevel(5)
   const length = game.boss.length
   game.finish()
   game.biteBoss(game.bossTail)
@@ -642,7 +672,7 @@ test("a boss with something at its neck stops dawdling", () => {
 
 test("a quick boss finds an extra step when threatened", () => {
   const game = fresh()
-  game.displayedLevel = 28 // third boss: already moving every tick
+  game.displayedLevel = 15 // third boss: already moving every tick
   game.wallsWrap = false
   game.spawnBoss()
   game.boss = [{ x: 10, y: 4 }, { x: 11, y: 4 }, { x: 12, y: 4 }]
