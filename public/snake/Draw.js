@@ -442,6 +442,17 @@ function drawBoss(ctx, view) {
       ctx.stroke()
     }
 
+    if (head && game.bossAlert) {
+      // It has noticed you. Worth saying so, since it is about to stop
+      // dawdling and the player should know why.
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150)
+      const glow = size + 5 + pulse * 5
+      ctx.globalAlpha = fx.boardContentOpacity * (0.2 + pulse * 0.25)
+      fillRound(ctx, x + size / 2 - glow / 2, y + size / 2 - glow / 2, glow, glow, radius + 3, "#ff4d4d")
+      ctx.globalAlpha = fx.boardContentOpacity
+      fillRound(ctx, x, y, size, size, radius, boss.skin)
+    }
+
     if (head) {
       // The dangerous end, and the only part of a boss that still kills you.
       const facing = game.boss.length > 1

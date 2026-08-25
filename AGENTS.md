@@ -103,6 +103,12 @@ These come from the Qt version and hold here too.
 - The rule has to stay legible or it is just an unfair death. A boss's red eyes
   face the way it is looking, the arena says "never head-on", and losing to the
   jaws says so by name instead of drawing from the usual message pool.
+- A boss keeps hunting the tail even when the snake is at its neck; being
+  alert only makes it move more. Making it turn to face the threat instead
+  sounds better and plays worse: it cannot turn towards something it is
+  already beside, because the cell it would step into is that thing, so it
+  sidles along with its head pointed elsewhere — which makes every approach a
+  safe one and quietly deletes the only way to lose a duel.
 - `moveBoss` eats from the tail and only the tail. It must not step onto the
   snake's head: the boss moves after the snake does, so going in to bite its
   head would be fatal by construction. Being eaten down to the last block is

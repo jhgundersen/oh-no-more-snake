@@ -123,7 +123,10 @@ behind. Head-on it eats you instead, and which of the two it will be is written
 on its face: a boss's red eyes point the way it is looking. It is chasing your
 tail, so where your tail is decides which way it turns.
 
-It is hunting you the same way. It takes blocks off your tail one at a time,
+It is hunting you the same way, and it notices company: get within a few cells
+of its head and it stops dawdling — the slower bosses give up the tick they
+would have rested on, the quicker ones find an extra step — and its eyes glow
+while it is paying attention. It takes blocks off your tail one at a time,
 with no floor under it: eaten down to your last block is a loss. It will not
 walk into the rest of you, so a duel can be taken slowly — the only thing that
 kills you quickly is its mouth.

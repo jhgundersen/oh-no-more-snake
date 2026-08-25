@@ -35,6 +35,14 @@ const layoutOrdinal = level => level - 2 - Math.floor((level - 1) / LEVELS_PER_S
 export const BOSS_FIGHT = "fight"
 export const BOSS_FINISH = "finish"
 export const BOSS_FATALITY = "fatality"
+// How close the snake's head has to get before the boss stops dawdling. It
+// keeps hunting the tail either way: an earlier version had it turn to face
+// the threat instead, which sounds right and plays terribly — a boss cannot
+// turn towards something it is already next to, because the cell it would
+// have to step into is the thing itself, so it sidles along beside you with
+// its head pointed somewhere else. That makes every approach a safe one and
+// quietly deletes the only way to lose.
+const BOSS_ALERT_RANGE = 4
 const FINISH_WINDOW_MS = 5000
 const FATALITY_MS = 2400
 const COMBO_DURATION_MS = 2000
@@ -414,6 +422,26 @@ export class Game {
     return this.husks.flatMap(husk => husk.cells)
   }
 
+  boardDistance(a, b) {
+    const dx = Math.abs(a.x - b.x)
+    const dy = Math.abs(a.y - b.y)
+    return this.wallsWrap
+      ? Math.min(dx, COLUMNS - dx) + Math.min(dy, ROWS - dy)
+      : dx + dy
+  }
+
+  // Whether it has noticed the thing creeping up on it, and whether that thing
+  // is close enough to be worth turning round for.
+  get bossThreat() {
+    if (this.bossPhase !== BOSS_FIGHT || this.boss.length < 2 || !this.snake.length) return 0
+    return this.boardDistance(this.boss[0], this.snake[0])
+  }
+
+  get bossAlert() {
+    const threat = this.bossThreat
+    return threat > 0 && threat <= BOSS_ALERT_RANGE
+  }
+
   // Which way the boss is looking, taken from its own neck. Wrapping makes the
   // raw difference large, so a step across the edge is read as the step it is.
   get bossFacing() {
@@ -612,44 +640,54 @@ export class Game {
     this.emit("bossArrived", number)
   }
 
-  // The boss hunts the snake's tail exactly as the snake hunts the boss's.
-  // Its body is simply in the way, and lethal.
+  // The boss hunts the snake's tail exactly as the snake hunts the boss's,
+  // until the snake gets close enough to be the more pressing problem.
   moveBoss() {
     if (this.bossPhase !== BOSS_FIGHT || this.boss.length < 2 || !this.snake.length) return
-    // The first two bosses give a tick back every so often. Later ones do not.
+    const alert = this.bossAlert
+    const number = bossNumber(this.displayedLevel)
     ++this.bossPace
-    if (bossNumber(this.displayedLevel) <= 2 && this.bossPace % 3 === 0) return
 
+    // Slow bosses stop giving a tick back once something is at their neck, and
+    // quick ones find an extra step. Standing still with a snake behind you is
+    // what made walking up to one so easy.
+    let steps = 1
+    if (!alert && number <= 2 && this.bossPace % 3 === 0) steps = 0
+    else if (alert && number > 2 && this.bossPace % 3 === 0) steps = 2
+
+    for (let step = 0; step < steps; ++step) if (!this.stepBoss()) break
+  }
+
+  // One move. Returns false when there was nowhere to go or the run ended.
+  stepBoss() {
     const tail = this.snake[this.snake.length - 1]
     // It eats from the tail and only from the tail. The rest of the snake,
     // head included, is something to go around — otherwise moving in to bite
     // its head is fatal by construction: the boss gets a move after yours, and
-    // stepping onto your head is usually its shortest way to your tail.
+    // stepping onto your head would usually be its shortest way to your tail.
     const blocked = [...this.snake.slice(0, Math.max(0, this.snake.length - 1)), ...this.huskCells]
     const step = nextBossStep(this.boss, tail, blocked, this.wallsWrap)
-    if (!step) return
+    if (!step) return false
 
     this.boss.unshift(step)
     // It never grows: the threat is losing your own length, not out-massing it.
     this.boss.pop()
-    if (!same(step, tail)) return
+    if (!same(step, tail)) return true
 
     // The last block is the head, so being eaten down to nothing ends here.
     if (this.snake.length <= 1) {
       this.emit("snakeBitten", step.x, step.y)
       this.finish()
-      return
+      return false
     }
     const bitten = this.snake.pop()
     this.score = scoreAfterSnakeBite(this.score)
     this.pendingGrowth = Math.max(0, this.pendingGrowth - 1)
     this.emit("snakeBitten", bitten.x, bitten.y)
     this.emit("scoreChanged")
+    return true
   }
 
-  // Bites one segment out of the boss. Taking it from the tail simply
-  // shortens it; taking it from the middle cuts it in two, and everything
-  // beyond the bite is left behind as a husk. Only the head is off the menu.
   biteBoss(head, index = this.boss.length - 1) {
     if (this.gameOver || this.boss.length < 2 || index <= 0) return
     const behind = this.boss.slice(index + 1)

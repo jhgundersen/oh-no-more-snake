@@ -625,3 +625,39 @@ test("the boss cannot be bitten after the run has ended", () => {
   assert.equal(game.boss.length, length)
   assert.equal(game.bossPhase, "fight", "and no finish is offered to a dead snake")
 })
+
+test("a boss with something at its neck stops dawdling", () => {
+  const game = fresh()
+  game.displayedLevel = 10 // the first boss, which normally skips every third tick
+  game.wallsWrap = false
+  game.spawnBoss()
+  game.boss = [{ x: 10, y: 4 }, { x: 11, y: 4 }, { x: 12, y: 4 }]
+
+  // Far away: the skipped tick is still skipped.
+  game.snake = [{ x: 2, y: 14 }, { x: 1, y: 14 }, { x: 0, y: 14 }]
+  assert.ok(!game.bossAlert)
+  game.bossPace = 2
+  const restingAt = { ...game.boss[0] }
+  game.moveBoss()
+  assert.deepEqual(game.boss[0], restingAt, "a boss with nothing behind it may dawdle")
+
+  // Close up: every tick counts.
+  game.snake = [{ x: 10, y: 6 }, { x: 10, y: 7 }, { x: 10, y: 8 }]
+  assert.ok(game.bossAlert)
+  game.bossPace = 2
+  game.moveBoss()
+  assert.notDeepEqual(game.boss[0], restingAt, "with a snake at its neck it does not")
+})
+
+test("a quick boss finds an extra step when threatened", () => {
+  const game = fresh()
+  game.displayedLevel = 28 // third boss: already moving every tick
+  game.wallsWrap = false
+  game.spawnBoss()
+  game.boss = [{ x: 10, y: 4 }, { x: 11, y: 4 }, { x: 12, y: 4 }]
+  game.snake = [{ x: 10, y: 6 }, { x: 10, y: 7 }, { x: 10, y: 8 }]
+  const from = { ...game.boss[0] }
+  game.bossPace = 2 // the tick that would have been skipped is a double instead
+  game.moveBoss()
+  assert.equal(game.boardDistance(from, game.boss[0]), 2, "two cells, not one")
+})
