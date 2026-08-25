@@ -40,8 +40,9 @@ the filesystem will not work.
 - `t` — cycle the theme
 - `v` — fullscreen
 - `c` — charts
-- `g` — jump to the next boss level, on localhost or with `?debug`. A run that
-  used it is never charted and never sets a best score.
+- `g` — jump to the next boss level. Local development only: it does not exist
+  on the deployed game, and a run that used it is never charted and never sets
+  a best score.
 - Escape — leave fullscreen, or pause
 
 On a touchscreen, drag on the board to steer and tap it to cycle the food skin.

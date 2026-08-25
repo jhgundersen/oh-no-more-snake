@@ -116,6 +116,9 @@ These come from the Qt version and hold here too.
 - Eyes are how the two snakes are told apart, not colour: wide and friendly on
   the snake, narrow and red under a brow on a boss. They face the direction of
   travel, which is also what makes the head readable at a glance.
+- The `g` jump is local-only and must stay that way. No query parameter, no
+  stored flag, nothing that can be typed into a deployed URL — reaching a boss
+  without playing to it is also reaching a score without playing for it.
 - Nothing a run did not earn may reach a best score or the charts.
   `jumpToLevel` sets `practiceRun`, and both `finish()` and the chart
   submission check it.

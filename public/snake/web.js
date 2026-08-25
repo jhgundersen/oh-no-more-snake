@@ -625,14 +625,15 @@ for (const button of buttons) {
 
 // --- trying a level out ------------------------------------------------------
 
-// Only on a machine you are developing on, or when asked for explicitly. It is
-// a way to reach a boss without playing nine levels first, and it must never
-// become a way to reach a high score without playing at all — hence both the
-// gate here and the refusal to submit the run.
+// Only on a machine you are developing on. There is deliberately no way to
+// switch this on for the deployed game — not a query parameter, not a stored
+// flag — because a way to reach a boss without playing nine levels first is
+// also a way to reach a score without playing at all. The run it produces is
+// refused by the charts as well, but this is the part that has to hold.
 const debugKeys = location.hostname === "localhost"
   || location.hostname === "127.0.0.1"
+  || location.hostname === "[::1]"
   || location.protocol === "file:"
-  || new URLSearchParams(location.search).has("debug")
 
 function jumpToNextBoss() {
   if (!debugKeys || game.endlessMode) return
