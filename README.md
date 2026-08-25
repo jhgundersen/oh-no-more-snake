@@ -115,9 +115,19 @@ Levels or Endless, whether Party Mode was on, and when it ended. No name, no
 account, no cookie, nothing identifying. The level shown is derived from the
 score by the server rather than accepted from the page.
 
-Treat it as a community number rather than a leaderboard: anyone can post to a
-public endpoint. Submissions are bounded, idempotent per run, and rate-limited
-per minute against an address hashed with a Worker secret.
+Treat it as a community number rather than a leaderboard, but not a free-for-all.
+A run asks the server for a signed token when it starts and hands it back with
+the score, so both ends of the clock are the server's and the page never gets to
+say how long its own run took. The score then has to be reachable in that time:
+Endless is capped by the area of the board, because every point is a block the
+snake grows by and nothing resets it; Levels has to account for the fade out and
+back in that each level it claims would have cost. A token is spent when it is
+used, so it buys exactly one entry. Submissions are also bounded, idempotent per
+run, and rate-limited per minute against an address hashed with a Worker secret.
+
+None of that makes a posted number true — the client is still the thing doing
+the counting. It makes a made-up one cost the time it claims to have taken,
+which for a game about a snake is the right amount of effort to demand.
 
 ## Themes
 
@@ -155,11 +165,24 @@ domains, and runs the Worker first for `/api/*` only. The charts live in D1.
 Setting it up from scratch needs the database and the hashing salt:
 
 ```sh
-npx wrangler d1 create oh-no-more-snake   # put the id in wrangler.jsonc
-npx wrangler secret put RATE_LIMIT_SALT   # any long random string
+npx wrangler d1 create oh-no-more-snake     # put the id in wrangler.jsonc
+npx wrangler secret put RATE_LIMIT_SALT     # any long random string
+npx wrangler secret put RUN_TOKEN_SECRET    # another one, used to sign runs
 npm run db:remote
 npm run deploy
 ```
+
+For `npm run dev`, put the same two names in a `.dev.vars` file. It is
+gitignored, and the values there only ever sign local runs.
+
+### `POST /api/runs`
+
+```json
+{ "token": "eyJuIjoi….Ux7…" }
+```
+
+Taken when a run starts. It carries a nonce and the server's clock, signed;
+nothing in it is readable or writable by the page.
 
 ### `GET /api/scores`
 
@@ -181,12 +204,15 @@ npm run deploy
   "eventId": "550e8400-e29b-41d4-a716-446655440000",
   "score": 57,
   "mode": "levels",
-  "party": true
+  "party": true,
+  "token": "eyJuIjoi….Ux7…"
 }
 ```
 
 The response is the updated boards. Reusing an `eventId` is idempotent, which
-is what makes the browser's retry queue safe.
+is what makes the browser's retry queue safe; reusing a `token` stores nothing,
+because a run token buys one entry. A score that could not have been reached in
+the time the token has been open comes back `422` with the reason.
 
 ## License
 

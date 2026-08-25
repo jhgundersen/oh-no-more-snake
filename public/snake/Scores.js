@@ -5,6 +5,7 @@
 // enter and nowhere to put one.
 
 const ENDPOINT = "api/scores"
+const RUNS_ENDPOINT = "api/runs"
 const PENDING_KEY = "omasnake/scores/pending"
 
 export const PERIOD_LABELS = {
@@ -42,6 +43,21 @@ export class Charts {
     this.runs = 0
     this.state = "idle" // idle | loading | ready | error
     this.submitting = false
+    this.token = null
+  }
+
+  // Taken at the start of a run, not the end. The server stamps it with its
+  // own clock and reads its own clock again when the score arrives, so how
+  // long the run took is never something this page gets to claim.
+  async startRun() {
+    this.token = null
+    try {
+      const response = await fetch(RUNS_ENDPOINT, { method: "POST" })
+      if (!response.ok) return
+      this.token = (await response.json()).token || null
+    } catch {
+      // No token, no chart entry. The game itself does not care.
+    }
   }
 
   async load() {
@@ -69,7 +85,11 @@ export class Charts {
   // one, which is why this never rejects.
   async submit(run) {
     const queued = readPending(this.store)
-    if (run) queued.push({ ...run, eventId: crypto.randomUUID() })
+    // A run with no token cannot be charted, so it is not worth queueing.
+    if (run && this.token) {
+      queued.push({ ...run, eventId: crypto.randomUUID(), token: this.token })
+      this.token = null
+    }
     if (!queued.length || this.submitting) return
     this.submitting = true
 

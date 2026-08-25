@@ -57,3 +57,68 @@ test("rows are ranked in the order the query returned them", () => {
   assert.equal(board[1].party, false)
   assert.deepEqual(shapeBoard(undefined), [], "an empty board is a board")
 })
+
+// --- run tokens and plausibility -------------------------------------------
+
+import { ENDLESS_CEILING, MAX_RUN_MS, implausible } from "../src/scores.js"
+import { issueRunToken, readRunToken } from "../src/runtoken.js"
+
+const SECRET = "a-test-secret-nobody-deploys"
+const minute = 60 * 1000
+
+test("a token round-trips, and a forged one does not", async () => {
+  const issued = await issueRunToken(SECRET, 1_000_000)
+  const read = await readRunToken(SECRET, issued.token)
+  assert.equal(read.nonce, issued.nonce)
+  assert.equal(read.issuedAt, 1_000_000)
+
+  // Signed by somebody else.
+  assert.equal(await readRunToken("a-different-secret", issued.token), null)
+  // Payload edited to back-date the run, signature left alone.
+  const [, signature] = issued.token.split(".")
+  const forged = Buffer.from(JSON.stringify({ n: issued.nonce, t: 1 })).toString("base64url")
+  assert.equal(await readRunToken(SECRET, `${forged}.${signature}`), null)
+})
+
+test("junk is not a token", async () => {
+  for (const value of [null, undefined, "", "nope", "a.b", 42, "x".repeat(900)]) {
+    assert.equal(await readRunToken(SECRET, value), null, `accepted ${String(value).slice(0, 20)}`)
+  }
+})
+
+test("a made-up score is refused for the time it claims to have taken", () => {
+  // The attack this exists for: a large number, posted immediately.
+  assert.ok(implausible(99999, "levels", 3000))
+  assert.ok(implausible(5000, "levels", 1000))
+  // And the same number after a plausible amount of play is still refused,
+  // because the levels it implies could not have been faded through.
+  assert.ok(implausible(99999, "levels", 10 * minute))
+})
+
+test("real runs are accepted", () => {
+  assert.equal(implausible(23, "levels", 45 * 1000), null)
+  assert.equal(implausible(12, "levels", 20 * 1000), null)
+  assert.equal(implausible(300, "endless", 12 * minute), null)
+  // A strong party run: high scoring, but over a real stretch of time.
+  assert.equal(implausible(900, "levels", 8 * minute), null)
+})
+
+test("the level-transition floor is a real rule, not shadowed by the rate one", () => {
+  // 500 points in 40s sits well inside the points-per-second allowance of 630,
+  // and is still refused: it claims 37 levels, and 36 fades cannot fit in 40s.
+  assert.match(implausible(500, "levels", 40 * 1000), /levels/)
+  assert.equal(implausible(500, "levels", 70 * 1000), null)
+})
+
+test("endless is capped by the board, however long it took", () => {
+  assert.equal(implausible(ENDLESS_CEILING, "endless", 30 * minute), null)
+  assert.ok(implausible(ENDLESS_CEILING + 1, "endless", 30 * minute))
+  // Levels resets the board every level, so the same score is fine there.
+  assert.equal(implausible(ENDLESS_CEILING + 1, "levels", 60 * minute), null)
+})
+
+test("a token cannot be left to mature, and time cannot run backwards", () => {
+  assert.ok(implausible(10, "levels", MAX_RUN_MS + 1))
+  assert.ok(implausible(10, "levels", -1))
+  assert.ok(implausible(10, "levels", Number.NaN))
+})

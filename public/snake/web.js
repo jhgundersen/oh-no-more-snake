@@ -291,6 +291,10 @@ let musicPauseDelay = 0
 
 // --- game events -------------------------------------------------------------
 
+// Every fresh run asks for its own token, so the clock the server checks
+// against is the clock of the run being submitted.
+game.on("runStarted", () => charts.startRun())
+
 game.on("levelCompleted", () => {
   levelTransitionStarted = performance.now()
   levelMessage = pickDifferent(levelMessages, levelMessage)
@@ -878,6 +882,10 @@ addEventListener("visibilitychange", () => {
   }
 })
 
+// The model's own constructor resets before anything is listening, so the
+// first run of the page needs its token asking for by hand.
+charts.startRun()
+
 applyTheme()
 if (fullParameter()) setFaux(true)
 resize()
@@ -888,7 +896,7 @@ requestAnimationFrame(now => {
 })
 
 // Handy from the console, and how the screenshot tool drives the page.
-globalThis.omasnake = { game, music, fx, themes, setTheme: id => {
+globalThis.omasnake = { game, music, fx, charts, themes, setTheme: id => {
   const found = themes.find(candidate => candidate.id === id)
   if (!found) return false
   theme = resolve(found)

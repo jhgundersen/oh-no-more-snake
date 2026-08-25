@@ -38,9 +38,11 @@ right and this one has a bug — with the deliberate exceptions listed under
 - `public/snake/Scores.js` — posting a finished run and reading the charts back,
   including the retry queue for runs that could not be posted.
 - `src/worker.js` — the two `/api/scores` routes and D1 access.
-- `src/scores.js` — validation, JSON responses, and the four SQL windows. It
-  imports `levelForScore` from the game itself rather than keeping a second
-  copy of the rule.
+- `src/scores.js` — validation, JSON responses, the four SQL windows, and the
+  plausibility rules. It imports the game's own constants rather than keeping a
+  second copy of them, which is what keeps the bounds honest when a rule changes.
+- `src/runtoken.js` — signing and reading the run tokens that give the server
+  both ends of a run's clock.
 - `migrations/` — ordered production migrations; never rewrite one that may
   already have been applied.
 - `test/game.test.js` — a port of `tests/tst_omasnake.cpp`, extended.
@@ -66,7 +68,13 @@ right and this one has a bug — with the deliberate exceptions listed under
   start. A run is a score, a shape and a timestamp. Addresses are only ever
   seen as a salted hash for rate limiting.
 - Never trust the page for anything the server can work out. The level on a
-  board is derived from the score, not accepted from the client.
+  board is derived from the score, and how long a run took is measured by the
+  server's clock at both ends — neither is accepted from the client.
+- A plausibility bound must never reject a real run. They are deliberately
+  several times looser than human play: a refused honest score is a worse bug
+  than an accepted dishonest one. When a game rule changes, check the bounds in
+  `src/scores.js` still hold — especially `ENDLESS_CEILING`, which is only true
+  while every point grows the snake and Endless never resets the board.
 
 ## Behaviour invariants
 

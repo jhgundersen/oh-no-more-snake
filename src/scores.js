@@ -5,9 +5,29 @@
 // the damage bounded, idempotent and rate-limited, which is as far as a game
 // with no accounts can reasonably go.
 
-import { levelForScore } from "../public/snake/Game.js"
+import { COLUMNS, ROWS, levelForScore } from "../public/snake/Game.js"
 
 export const MAX_SCORE = 100000
+
+// How long a token stays spendable. Longer than any real run, short enough
+// that one cannot be left to mature into a large allowance.
+export const MAX_RUN_MS = 2 * 60 * 60 * 1000
+
+// Every point scored is also a block the snake grows by, and the run ends when
+// there is nowhere left to put one. Endless never resets the board, so the
+// whole mode is capped by the board's area — a structural limit, not a guess.
+export const ENDLESS_CEILING = COLUMNS * ROWS
+
+// This one is a plausibility ceiling rather than a physical one. The game's own
+// limits would allow far more — eighteen ticks a second, ten points a food —
+// but nothing human comes close to a sustained fifteen, and the point is to
+// make "ninety thousand in three seconds" arithmetic instead of opinion.
+const POINTS_PER_SECOND = 15
+const OPENING_ALLOWANCE = 30
+
+// A level cannot be cleared faster than the board can fade out and back in,
+// and those two are what the level-clear screen is made of.
+const LEVEL_TRANSITION_MS = 750 + 900
 export const MAX_SUBMISSIONS_PER_MINUTE = 10
 export const BOARD_SIZE = 10
 
@@ -45,6 +65,26 @@ export function parseScoreReport(body) {
     party,
     level: mode === "endless" ? 1 : levelForScore(score)
   }
+}
+
+// What a run of this score would have had to do, checked against how long the
+// server watched it take. Returns a reason to refuse, or null to accept.
+export function implausible(score, mode, elapsedMs) {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "a run cannot end before it started"
+  if (elapsedMs > MAX_RUN_MS) return "this run token has expired"
+
+  if (mode === "endless") {
+    // Nothing resets the board, so the snake runs out of room long before this.
+    if (score > ENDLESS_CEILING) return "endless is capped by the size of the board"
+  } else {
+    // Each level costs a fade out and a fade in that nothing can skip past.
+    const transitions = (levelForScore(score) - 1) * LEVEL_TRANSITION_MS
+    if (elapsedMs < transitions) return "too quick for the levels that score would have cleared"
+  }
+
+  const allowance = OPENING_ALLOWANCE + (POINTS_PER_SECOND * elapsedMs) / 1000
+  if (score > allowance) return "too many points for the time taken"
+  return null
 }
 
 export async function clientHash(request, salt) {

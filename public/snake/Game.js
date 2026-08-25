@@ -553,6 +553,8 @@ export class Game {
     this.emit("statusChanged")
     this.emit("timeChanged")
     this.emit("comboChanged")
+    // A fresh run, which is the moment its clock should start.
+    this.emit("runStarted")
   }
 
   tick() {
