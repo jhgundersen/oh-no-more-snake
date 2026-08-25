@@ -295,45 +295,41 @@ function skipLevelTransition() {
 
 // --- swapping the soundtrack for a duel --------------------------------------
 
-// One track at a time, so a swap is a fade down, a change, and a fade back up
-// rather than a crossfade. The splash is on screen for most of it, which is
-// what makes the gap read as an arrival instead of a gap.
+// Two elements mixed before the analyser, so this is a handover rather than a
+// gap. The boss track arrives at full volume and the playlist falls away
+// underneath it; coming back is a proper crossfade, since nothing is arriving.
 const PLAYING_VOLUME = 0.55
-let musicSwapTarget = null
 
-const swapFadeOut = register(new Tween({
-  from: PLAYING_VOLUME, to: 0, duration: 550, curve: easing.inOutSine,
-  apply: value => music.setVolume(value),
-  onDone: () => {
-    const change = musicSwapTarget === "playlist"
-      ? music.leaveBossTrack()
-      : music.enterBossTrack(musicSwapTarget)
-    change.then(() => {
-      // If the run ended or paused mid-swap, the silence was the right answer.
-      const wanted = game.running && !game.gameOver ? PLAYING_VOLUME : 0
-      swapFadeIn.restart({ from: 0, to: wanted })
-    })
-  }
+const playlistAway = register(new Tween({
+  from: 1, to: 0, duration: 1100, curve: easing.inOutSine,
+  apply: value => music.setPlaylistLevel(value),
+  onDone: () => music.stopPlaylistElement()
 }))
 
-const swapFadeIn = register(new Tween({
-  from: 0, to: PLAYING_VOLUME, duration: 950, curve: easing.inOutSine,
-  apply: value => music.setVolume(value)
+const playlistBack = register(new Tween({
+  from: 0, to: 1, duration: 1100, curve: easing.inOutSine,
+  apply: value => music.setPlaylistLevel(value)
 }))
 
-const swappingMusic = () => swapFadeOut.running || swapFadeIn.running
+const bossAway = register(new Tween({
+  from: 1, to: 0, duration: 900, curve: easing.inOutSine,
+  apply: value => music.setBossLevel(value),
+  onDone: () => music.stopBossElement()
+}))
 
-function swapMusic(target) {
-  musicSwapTarget = target
-  if (!music.enabled) {
-    // Nothing is playing, so there is nothing to fade — just line up the
-    // right track for whenever Party Mode is switched on.
-    if (target === "playlist") music.leaveBossTrack()
-    else music.enterBossTrack(target)
-    return
-  }
-  swapFadeIn.stop()
-  swapFadeOut.restart({ from: music.volume })
+function enterBossMusic(index) {
+  playlistBack.stop()
+  bossAway.stop()
+  // No fade on the way in — it starts, and the playlist gets out of the way.
+  music.enterBossTrack(index)
+  playlistAway.restart({ from: music.playlistLevel })
+}
+
+function leaveBossMusic() {
+  playlistAway.stop()
+  music.leaveBossTrack()
+  playlistBack.restart({ from: music.playlistLevel })
+  bossAway.restart({ from: music.bossLevel })
 }
 
 const musicFade = register(new Tween({
@@ -356,7 +352,7 @@ game.on("bossArrived", number => {
   startSplash("boss")
   announce(`Boss fight. ${boss.name}. ${boss.epithet}`)
   // Alternating, so both boss tracks get used across a run.
-  swapMusic((number - 1) % Math.max(1, music.bossTrackCount))
+  enterBossMusic((number - 1) % Math.max(1, music.bossTrackCount))
 })
 
 game.on("bossBitten", (x, y, remaining) => showEnemyBurst(remaining > 1 ? "−1  SEGMENT" : "DISARMED", x, y))
@@ -424,7 +420,9 @@ game.on("statusChanged", () => {
   }
   // Level transitions leave playback completely alone. Pause and death fade to
   // silence before suspending the player.
-  if (!game.levelTransition && !swappingMusic()) {
+  // The handover moves the mix between the two elements; this moves the volume
+  // of both. They no longer have anything to argue about.
+  if (!game.levelTransition) {
     musicPauseDelay = 0
     musicFade.stop()
     if (game.running && !game.gameOver) {
@@ -905,7 +903,7 @@ function frame(now) {
 
   // A boss track belongs to a boss level. Winning, dying, restarting or
   // jumping away all leave one, and all of them sound the same from here.
-  if (music.inBossTrack && !swappingMusic() && (!game.bossLevel || game.gameOver)) swapMusic("playlist")
+  if (music.inBossTrack && (!game.bossLevel || game.gameOver)) leaveBossMusic()
 
   // A track too slow or too quiet to produce a strong beat must not leave the
   // level-clear screen up forever.

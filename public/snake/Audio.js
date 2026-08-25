@@ -68,7 +68,11 @@ export class MusicController {
     this.context = null
     this.analyser = null
     this.gain = null
+    this.playlistGain = null
+    this.bossGain = null
     this.samples = null
+    this.playlistLevel = 1
+    this.bossLevel = 0
 
     this.element = new Audio()
     this.element.preload = "none"
@@ -83,9 +87,17 @@ export class MusicController {
     })
 
     this.resumePosition = 0
-    // Set while a boss track is playing over the top of the playlist.
+
+    // A boss track has to land at full volume while the playlist is still
+    // fading out underneath it, and one element cannot play two things. So
+    // there are two, mixed before the analyser — which is also why Party Mode
+    // reacts to whatever is actually audible during the handover.
+    this.bossElement = new Audio()
+    this.bossElement.preload = "none"
+    this.bossElement.crossOrigin = "anonymous"
+    this.bossElement.loop = true // a duel outlasts a track more often than not
     this.bossTrack = null
-    this.bossReturn = null
+
     this.loadState()
     this.element.src = this.tracks[this.track].url
     setInterval(() => this.saveState(), 5000)
@@ -115,34 +127,42 @@ export class MusicController {
     return BOSS_TRACKS.length
   }
 
-  // Steps aside for a boss, remembering exactly where to come back to.
+  // Steps aside for a boss. The playlist element is simply left paused where
+  // it stands, so there is no position to remember — it is still holding it.
   async enterBossTrack(index) {
     if (this.bossTrack) return
-    this.bossReturn = { track: this.track, position: this.element.currentTime || 0 }
     this.bossTrack = BOSS_TRACKS[((index % BOSS_TRACKS.length) + BOSS_TRACKS.length) % BOSS_TRACKS.length]
     this.energyHistory = []
     this.lastOnset = -1
-    this.resumePosition = 0
-    this.element.src = this.bossTrack.url
-    this.element.load()
+    this.bossElement.src = this.bossTrack.url
+    // No load() here: setting src already starts one, and asking to play in
+    // the same breath makes the browser abort the request it just began.
+    // Straight in at full: a challenger does not fade up.
+    this.setBossLevel(1)
     if (this.enabled && this.gameActive) await this.play()
     this.emit("trackChanged")
   }
 
-  // Back to the playlist, and back to the second it was interrupted at.
+  // Back to the playlist, at the second it was interrupted at, because the
+  // element never moved.
   async leaveBossTrack() {
     if (!this.bossTrack) return
-    const { track, position } = this.bossReturn || { track: this.track, position: 0 }
     this.bossTrack = null
-    this.bossReturn = null
-    this.track = Math.min(track, Math.max(0, this.tracks.length - 1))
     this.energyHistory = []
     this.lastOnset = -1
-    this.resumePosition = position
-    this.element.src = this.tracks[this.track].url
-    this.element.load()
     if (this.enabled && this.gameActive) await this.play()
     this.emit("trackChanged")
+  }
+
+  // Called by whichever fade is finished with an element.
+  stopBossElement() {
+    this.bossElement.pause()
+    this.setBossLevel(0)
+  }
+
+  stopPlaylistElement() {
+    this.element.pause()
+    this.setPlaylistLevel(0)
   }
 
   // --- graph ---
@@ -154,17 +174,47 @@ export class MusicController {
     const Context = globalThis.AudioContext || globalThis.webkitAudioContext
     if (!Context) return
     this.context = new Context()
-    const source = this.context.createMediaElementSource(this.element)
     this.analyser = this.context.createAnalyser()
     this.analyser.fftSize = FFT_SIZE
     // The analysis wants raw windows, not a smoothed magnitude display.
     this.analyser.smoothingTimeConstant = 0
+
+    // Each element has its own level for the handover; `gain` is the volume of
+    // the whole thing, which is what pausing and dying fade.
+    this.playlistGain = this.context.createGain()
+    this.playlistGain.gain.value = this.playlistLevel
+    this.bossGain = this.context.createGain()
+    this.bossGain.gain.value = this.bossLevel
     this.gain = this.context.createGain()
     this.gain.gain.value = this.volume
-    source.connect(this.analyser)
+
+    this.context.createMediaElementSource(this.element).connect(this.playlistGain)
+    this.context.createMediaElementSource(this.bossElement).connect(this.bossGain)
+    this.playlistGain.connect(this.analyser)
+    this.bossGain.connect(this.analyser)
     this.analyser.connect(this.gain)
     this.gain.connect(this.context.destination)
     this.samples = new Float32Array(this.analyser.fftSize)
+  }
+
+  // The mix between the two elements: 1 and 0 is the playlist alone.
+  setPlaylistLevel(level) {
+    this.playlistLevel = Math.max(0, Math.min(1, level))
+    if (this.playlistGain) this.playlistGain.gain.value = this.playlistLevel
+  }
+
+  setBossLevel(level) {
+    this.bossLevel = Math.max(0, Math.min(1, level))
+    if (this.bossGain) this.bossGain.gain.value = this.bossLevel
+  }
+
+  // Whichever element should be making the noise right now.
+  get currentElement() {
+    return this.bossTrack ? this.bossElement : this.element
+  }
+
+  get playing() {
+    return !this.element.paused || !this.bossElement.paused
   }
 
   setVolume(volume) {
@@ -183,12 +233,17 @@ export class MusicController {
       // suspended until a gesture arrives, and awaiting it would hang here
       // instead of reporting that playback was refused.
       this.context?.resume().catch(() => {})
-      await this.element.play()
+      await this.currentElement.play()
       return true
-    } catch {
-      // Autoplay refused, or the file failed to load. Say so rather than
-      // leaving the button claiming a party that is not happening.
+    } catch (error) {
+      // Only a refusal is a refusal. An AbortError means a load interrupted
+      // the request — the audio starts a moment later anyway, and treating
+      // that as "autoplay was blocked" switched Party Mode off mid-fight.
+      if (error?.name !== "NotAllowedError") return false
+      // Say so rather than leaving the button claiming a party that is not
+      // happening.
       this.enabled = false
+      this.pauseAll()
       this.emit("enabledChanged")
       this.emit("blocked")
       return false
@@ -198,8 +253,13 @@ export class MusicController {
   toggle() {
     this.enabled = !this.enabled
     if (this.enabled && this.gameActive) this.play()
-    else this.element.pause()
+    else this.pauseAll()
     this.emit("enabledChanged")
+  }
+
+  pauseAll() {
+    this.element.pause()
+    this.bossElement.pause()
   }
 
   nextTrack() {
@@ -207,15 +267,11 @@ export class MusicController {
     if (!this.tracks.length) return
     this.track = (this.track + 1) % this.tracks.length
     this.resumePosition = 0
-    // A boss track is playing over the top of the playlist. Changing the
-    // playlist now decides what comes back afterwards; it interrupts nothing.
-    if (this.bossTrack) {
-      this.bossReturn = { track: this.track, position: 0 }
-      this.emit("trackChanged")
-      return
-    }
     this.loadTrack()
-    if (this.enabled && this.gameActive) this.play()
+    // During a duel the playlist element is paused and silent, so a new track
+    // loads into it without interrupting anything. It is simply what will be
+    // playing once the fight is over.
+    if (this.enabled && this.gameActive && !this.bossTrack) this.play()
     this.saveState()
     this.emit("trackChanged")
   }
@@ -243,7 +299,7 @@ export class MusicController {
     this.gameActive = active
     if (!this.enabled) return
     if (active) this.play()
-    else this.element.pause()
+    else this.pauseAll()
   }
 
   // Dropped files stand in for `~/.local/share/omasnake/music`. Object URLs do
@@ -286,10 +342,10 @@ export class MusicController {
 
   saveState() {
     if (!this.store || !this.tracks.length) return
-    // A boss track is an interruption, not a place in the playlist, so what is
-    // remembered is where the playlist was when it started.
-    const index = this.bossReturn ? this.bossReturn.track : this.track
-    const position = this.bossReturn ? this.bossReturn.position : this.element.currentTime || 0
+    // The playlist element holds its own position whether or not a boss track
+    // is playing over the top of it, so this needs no special case.
+    const index = this.track
+    const position = this.element.currentTime || 0
     const current = this.tracks[index]
     try {
       // A blob URL is meaningless next session; remember the built-in it would
@@ -308,7 +364,7 @@ export class MusicController {
   // decoded audio buffer would have arrived at on the desktop, because the
   // smoothing constants below were tuned per buffer, not per frame.
   update(deltaMs, now) {
-    if (!this.enabled || !this.analyser || this.element.paused) return
+    if (!this.enabled || !this.analyser || !this.playing) return
     const interval = (this.analyser.fftSize / this.context.sampleRate) * 1000
     this.sinceAnalysis += deltaMs
     if (this.sinceAnalysis < interval) return

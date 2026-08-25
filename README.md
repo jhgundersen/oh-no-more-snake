@@ -146,9 +146,10 @@ Only the last four inputs count, so a fumbled start costs nothing. Hesitating
 past five seconds is a finish too — a worse one, and it still ends the same way. Winning pays for the level it
 cleared, and whatever was scored during the fight is kept on top.
 
-A duel has its own music. Whatever was playing fades down, one of two boss
-tracks comes in under the challenger card, and when the level is over the
-playlist fades back in at the second it was interrupted at. Pressing `n` during
+A duel has its own music. One of two boss tracks arrives at full volume with
+the challenger card while whatever was playing falls away underneath it, and
+when the level is over the playlist crossfades back in at the second it was
+interrupted at. Pressing `n` during
 a fight does not interrupt the boss track; it chooses what comes back.
 
 The six bosses cycle: Null Pointer, Segfault, Deadlock, Stack Overflow, Race

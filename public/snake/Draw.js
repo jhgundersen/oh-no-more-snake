@@ -42,18 +42,45 @@ function drawFace(ctx, { x, y, size, direction, angry }) {
   // Across the direction of travel, so the pair always sits side by side and
   // the head reads as a head whichever way it is going.
   const across = { x: -forward.y, y: forward.x }
-  const centreX = x + size / 2 + forward.x * size * 0.12
-  const centreY = y + size / 2 + forward.y * size * 0.12
+  // Set back a little from the leading edge, so the brows have somewhere to
+  // sit without running off the front of the head.
+  const centreX = x + size / 2 + forward.x * size * 0.06
+  const centreY = y + size / 2 + forward.y * size * 0.06
   const spread = size * 0.22
-  const dot = size * 0.13
+  const dot = size * 0.14
 
-  ctx.fillStyle = angry ? "#ff4d4d" : "#101014"
-  ctx.beginPath()
   for (const side of [-1, 1]) {
-    ctx.moveTo(centreX + across.x * spread * side + dot, centreY + across.y * spread * side)
-    ctx.arc(centreX + across.x * spread * side, centreY + across.y * spread * side, dot, 0, Math.PI * 2)
+    const ex = centreX + across.x * spread * side
+    const ey = centreY + across.y * spread * side
+
+    ctx.beginPath()
+    ctx.arc(ex, ey, dot, 0, Math.PI * 2)
+    ctx.fillStyle = angry ? "#ff4d4d" : "#101014"
+    ctx.fill()
+
+    if (angry) {
+      // A short brow in front of each eye, sloping down towards the middle.
+      // It has to stay clear of the eye itself: drawn across one, the pair
+      // stops looking like a face and starts looking like a chevron.
+      ctx.beginPath()
+      ctx.moveTo(ex + forward.x * dot * 1.75 - across.x * dot * 0.1 * side,
+        ey + forward.y * dot * 1.75 - across.y * dot * 0.1 * side)
+      ctx.lineTo(ex + forward.x * dot * 0.2 + across.x * dot * 1.7 * side,
+        ey + forward.y * dot * 0.2 + across.y * dot * 1.7 * side)
+      ctx.strokeStyle = "#101014"
+      ctx.lineWidth = Math.max(1.2, size * 0.085)
+      ctx.lineCap = "round"
+      ctx.stroke()
+    } else {
+      // A glint, which is most of what makes an eye look friendly and costs
+      // one more circle to do.
+      ctx.beginPath()
+      ctx.arc(ex + forward.x * dot * 0.34 - across.x * dot * 0.34 * side,
+        ey + forward.y * dot * 0.34 - across.y * dot * 0.34 * side, dot * 0.4, 0, Math.PI * 2)
+      ctx.fillStyle = "#ffffff"
+      ctx.fill()
+    }
   }
-  ctx.fill()
 }
 
 // A glyph centred in one cell, the way a QML Text sized to the cell centres it.

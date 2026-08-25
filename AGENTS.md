@@ -145,12 +145,16 @@ Each of these is a deliberate answer to something a browser cannot do. Do not
   Linux glyphs are private-use codepoints. They join the cycle only when
   `document.fonts.check` confirms the family is installed; otherwise the cycle
   is the five fruit, because the alternative is four identical boxes.
-- **Boss tracks sit outside the playlist.** They interrupt it rather than
-  belong to it: `enterBossTrack` remembers the track and the second it was at,
-  `leaveBossTrack` puts both back, and what gets saved to storage is always the
-  playlist position, never the interruption. One `<audio>` element means a swap
-  is a fade down, a change and a fade back up rather than a crossfade — the
-  splash covers the gap, which is what makes it read as an arrival.
+- **Boss tracks sit outside the playlist**, and get their own `<audio>`
+  element. A challenger has to land at full volume while the playlist is still
+  fading out underneath it, which one element cannot do; the two are mixed
+  before the analyser, so Party Mode reacts to whatever is actually audible
+  during the handover. The playlist element is only ever paused, never
+  reloaded, so it holds its own position and there is nothing to remember.
+- **Only `NotAllowedError` means autoplay was refused.** Any other rejection
+  from `play()` — an `AbortError` from a `load()` in the same breath, most
+  often — must not switch Party Mode off. It did, mid-fight, and the boss
+  track carried on playing underneath a game that thought the music was off.
 - **Custom music is dropped, not read from disk.** A page cannot see
   `~/.local/share/omasnake/music`. Dropped files last for the session, because
   object URLs do not survive a reload.
