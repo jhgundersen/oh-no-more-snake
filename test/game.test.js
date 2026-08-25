@@ -369,7 +369,7 @@ test("the boss steps towards its target without eating itself", () => {
   assert.equal(nextBossStep(boss, { x: 1, y: 5 }, walled, false), null)
 })
 
-test("only the boss's head is dangerous", () => {
+test("reaching the boss's head wins the fight outright", () => {
   const game = fresh()
   game.score = scoreForLevel(10)
   game.displayedLevel = 10
@@ -379,6 +379,7 @@ test("only the boss's head is dangerous", () => {
   assert.equal(game.boss.length, bossLength(1))
   assert.equal(game.bossHealth, 1)
 
+  // Swim into its jaws on purpose: nothing about a boss is off limits now.
   const bossHead = game.boss[0]
   game.snake = [
     { x: bossHead.x, y: bossHead.y + 1 },
@@ -388,7 +389,50 @@ test("only the boss's head is dangerous", () => {
   game.direction = { x: 0, y: -1 }
   game.food = { x: 1, y: 14 }
   game.tick()
-  assert.ok(game.gameOver, "swimming into its jaws is still fatal")
+
+  assert.ok(!game.gameOver, "the boss cannot kill you by being touched")
+  assert.equal(game.bossPhase, "finish")
+  assert.equal(game.boss.length, 1)
+  assert.equal(game.husks.length, 1, "everything behind the head comes away")
+})
+
+test("the boss eats you down, and the last block is the last block", () => {
+  const game = fresh()
+  game.displayedLevel = 10
+  game.wallsWrap = false
+  game.spawnBoss()
+  // Boss head one step from the snake's tail, the snake pointing away.
+  game.snake = [{ x: 10, y: 8 }, { x: 11, y: 8 }]
+  game.boss = [{ x: 12, y: 8 }, { x: 13, y: 8 }]
+  game.bossPace = 1 // the next move is a moving one
+  game.moveBoss()
+  assert.equal(game.snake.length, 1, "the tail goes, however short it already was")
+  assert.ok(!game.gameOver)
+
+  // One block left, and being alone is not what kills you — being reached is.
+  game.boss = [{ x: 15, y: 2 }, { x: 16, y: 2 }]
+  game.bossPace = 1
+  game.moveBoss()
+  assert.ok(!game.gameOver, "a boss on the far side of the board has not eaten you")
+
+  // Nothing left but the head, and it takes that too.
+  game.boss = [{ x: 11, y: 8 }, { x: 12, y: 8 }]
+  game.bossPace = 1
+  game.moveBoss()
+  assert.ok(game.gameOver, "eaten down to nothing is a loss")
+})
+
+test("the boss taking the head ends the run even at full length", () => {
+  const game = fresh()
+  game.displayedLevel = 10
+  game.wallsWrap = false
+  game.spawnBoss()
+  // Its head sits beside the snake's head, with the tail beyond.
+  game.snake = [{ x: 10, y: 8 }, { x: 10, y: 9 }, { x: 10, y: 10 }, { x: 10, y: 11 }]
+  game.boss = [{ x: 9, y: 8 }, { x: 8, y: 8 }]
+  game.bossPace = 1
+  game.moveBoss()
+  assert.ok(game.gameOver, "it went for the tail and found the head on the way")
 })
 
 test("a bite through the middle cuts the boss in two", () => {

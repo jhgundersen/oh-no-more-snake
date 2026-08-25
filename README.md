@@ -113,12 +113,16 @@ and before they start again — narrower, faster and worth more — a rival snak
 turns up in an empty arena, announced by name and portrait the way Party Mode
 announces itself.
 
-Eat him. Only the boss's head is dangerous — everything behind it is food.
-Take a bite out of its tail and it simply gets shorter; take one out of its
-middle and it comes apart, leaving a headless piece to drift around the arena
-until you eat that too. The boss meanwhile hunts your tail and takes segments
-off you the same way. There is no timer and no way to lose length below three,
-so a duel can be taken slowly.
+Eat him. Every part of a boss is worth reaching: bite the tail and it gets
+shorter, bite the middle and it comes apart, leaving a headless piece to drift
+around the arena until you eat that too. Reach the head and the fight is over
+on the spot — whatever was still attached to it sloughs off and the finish
+begins.
+
+It is hunting you the same way. It takes blocks off your tail one at a time,
+and there is no floor to that: eaten down to your last block, or caught by the
+head at any length, is a loss. There is no timer, so a duel can be taken
+slowly — but not indefinitely.
 
 When only its head is left, everything stops for **FINISH HIM!** and five
 seconds to press one of these:

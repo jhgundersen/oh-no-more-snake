@@ -92,10 +92,15 @@ These come from the Qt version and hold here too.
 - A boss level is cleared by winning, not by scoring, so `level` is pinned to
   `displayedLevel` for the duration. Without that a lucky run of apples during
   a duel starts the next level on top of the boss.
-- Only a boss's head is lethal. Its body splits when bitten, and what comes
-  off becomes a headless husk that drifts and can be eaten too. That is the
-  difficulty valve for the whole fight: if a duel is too hard, this is the
-  dial, not the boss's speed.
+- Nothing about a boss kills the snake by being touched. Its body splits when
+  bitten, what comes off drifts as a headless husk that can also be eaten, and
+  reaching its head ends the fight outright. The duel is lost the other way
+  round: the boss eats blocks off the snake's tail with no floor under it, and
+  reaching the snake's head ends the run. If a duel is too hard or too easy,
+  those two rules are the dial, not the boss's speed.
+- `moveBoss` must only kill by *arriving* at the snake's head. An earlier
+  version also ended the run whenever the snake was down to one block, which
+  killed players from across the board.
 - Eyes are how the two snakes are told apart, not colour: wide and friendly on
   the snake, narrow and red under a brow on a boss. They face the direction of
   travel, which is also what makes the head readable at a glance.

@@ -472,8 +472,14 @@ function drawFinish(ctx, view, width, height) {
   if (head && !finishing) {
     const pulse = 1 + 0.14 * Math.sin(performance.now() / 120)
     const boss = bossFor(view.bossNumber)
+    // Charging the head leaves both heads in one cell. Nudging the boss's
+    // ahead of the snake's turns an overlap into a mouthful.
+    const snakeHead = game.snake[0]
+    const shared = snakeHead && snakeHead.x === head.x && snakeHead.y === head.y
+    const nudgeX = shared ? game.direction.x * cell * 0.3 : 0
+    const nudgeY = shared ? game.direction.y * cell * 0.3 : 0
     ctx.save()
-    ctx.translate((head.x + 0.5) * cell, (head.y + 0.5) * cell)
+    ctx.translate((head.x + 0.5) * cell + nudgeX, (head.y + 0.5) * cell + nudgeY)
     ctx.scale(pulse, pulse)
     fillRound(ctx, -cell / 2, -cell / 2, cell - 2, cell - 2, cell * 0.25, boss.skin)
     ctx.restore()

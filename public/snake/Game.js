@@ -597,21 +597,33 @@ export class Game {
     ++this.bossPace
     if (bossNumber(this.displayedLevel) <= 2 && this.bossPace % 3 === 0) return
 
+    const playerHead = this.snake[0]
     const tail = this.snake[this.snake.length - 1]
-    const blocked = [...this.snake.slice(0, Math.max(0, this.snake.length - 1)), ...this.huskCells]
+    // The tail is the bite and the head is the kill. Only what lies between
+    // them is body it has to go around.
+    const blocked = [...this.snake.slice(1, Math.max(1, this.snake.length - 1)), ...this.huskCells]
     const step = nextBossStep(this.boss, tail, blocked, this.wallsWrap)
     if (!step) return
 
     this.boss.unshift(step)
-    if (same(step, tail) && this.snake.length > MINIMUM_BITEABLE_LENGTH) {
+    // It never grows: the threat is losing your own length, not out-massing it.
+    this.boss.pop()
+
+    // Reaching the head ends the run. When only one block is left that block
+    // is the head, so being eaten down to nothing arrives here too — but only
+    // when the boss actually reaches it, not merely because it is alone.
+    if (same(step, playerHead)) {
+      this.emit("snakeBitten", step.x, step.y)
+      this.finish()
+      return
+    }
+    if (same(step, tail)) {
       const bitten = this.snake.pop()
       this.score = scoreAfterSnakeBite(this.score)
       this.pendingGrowth = Math.max(0, this.pendingGrowth - 1)
       this.emit("snakeBitten", bitten.x, bitten.y)
       this.emit("scoreChanged")
     }
-    // It never grows: the threat is losing your own length, not out-massing it.
-    this.boss.pop()
   }
 
   // Bites one segment out of the boss. Taking it from the tail simply
@@ -624,13 +636,27 @@ export class Game {
     if (behind.length) this.addHusk(behind)
     this.awardPoints(1)
     this.emit("bossBitten", head.x, head.y, this.boss.length, behind.length > 0)
-    if (this.boss.length <= 1) {
-      this.bossPhase = BOSS_FINISH
-      this.finishRemainingMs = FINISH_WINDOW_MS
-      this.finisherInputs = []
-      this.emit("bossFinishReady")
-      this.emit("statusChanged")
-    }
+    if (this.boss.length <= 1) this.beginFinish()
+  }
+
+  // Getting to the head ends the fight there and then: whatever was still
+  // attached to it sloughs off, and the finish begins.
+  takeBossHead(at) {
+    if (this.gameOver || !this.boss.length) return
+    const behind = this.boss.slice(1)
+    this.boss = [this.boss[0]]
+    if (behind.length) this.addHusk(behind)
+    this.awardPoints(1)
+    this.emit("bossBitten", at.x, at.y, 1, behind.length > 0)
+    this.beginFinish()
+  }
+
+  beginFinish() {
+    this.bossPhase = BOSS_FINISH
+    this.finishRemainingMs = FINISH_WINDOW_MS
+    this.finisherInputs = []
+    this.emit("bossFinishReady")
+    this.emit("statusChanged")
   }
 
   addHusk(cells) {
@@ -920,12 +946,11 @@ export class Game {
     }
 
     const eats = same(head, this.food)
-    // The boss is beaten a segment at a time. Only its head is dangerous —
-    // everything behind it is food, and a bite through the middle cuts it in
-    // two rather than ending the run.
+    // Any part of the boss is worth reaching. A bite through the middle cuts
+    // it in two; reaching the head finishes the fight outright.
     const bossIndex = this.boss.findIndex(cell => same(cell, head))
     const bitesBoss = bossIndex > 0
-    const hitsBossHead = bossIndex === 0
+    const takesBossHead = bossIndex === 0
     const huskHit = this.findHusk(head)
     const hitsDiscoBall = same(head, this.discoBall)
     const hitsSnakeEater = same(head, this.snakeEater)
@@ -944,14 +969,15 @@ export class Game {
         break
       }
     }
-    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf || hitsBossHead) {
+    if (this.isObstacle(head) || (!this.beatGatesOpen && has(this.beatGates, head)) || hitsSelf) {
       this.finish()
       return
     }
 
     this.snake.unshift(head)
 
-    if (bitesBoss) this.biteBoss(head, bossIndex)
+    if (takesBossHead) this.takeBossHead(head)
+    else if (bitesBoss) this.biteBoss(head, bossIndex)
     else if (huskHit) this.biteHusk(head, huskHit.husk, huskHit.cell)
 
     if (hitsSnakeEater) {
