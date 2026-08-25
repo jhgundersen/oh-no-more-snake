@@ -35,10 +35,19 @@ right and this one has a bug — with the deliberate exceptions listed under
   the page around the game. That division is the whole of the fullscreen
   feature — the browser renders only the fullscreen element's subtree, so
   nothing has to hide them.
+- `public/snake/Scores.js` — posting a finished run and reading the charts back,
+  including the retry queue for runs that could not be posted.
+- `src/worker.js` — the two `/api/scores` routes and D1 access.
+- `src/scores.js` — validation, JSON responses, and the four SQL windows. It
+  imports `levelForScore` from the game itself rather than keeping a second
+  copy of the rule.
+- `migrations/` — ordered production migrations; never rewrite one that may
+  already have been applied.
 - `test/game.test.js` — a port of `tests/tst_omasnake.cpp`, extended.
+- `test/scores.test.js` — what the charts endpoint accepts and refuses.
 - `public/_headers` — cache lifetimes for what Workers Assets serves.
-- `wrangler.jsonc` — an assets-only Worker, with the apex and `www` custom
-  domains. No bindings, no secrets.
+- `wrangler.jsonc` — the Worker, its D1 binding, and the apex and `www` custom
+  domains. `RATE_LIMIT_SALT` is a Worker secret and is never committed.
 
 ## Working conventions
 
@@ -53,6 +62,11 @@ right and this one has a bug — with the deliberate exceptions listed under
 - Match the existing humour. Keep the messages geeky, gently sarcastic, and
   free of elapsed-time references.
 - Add or update a model test whenever a game rule changes.
+- The charts carry no names, no accounts and nothing identifying, and must not
+  start. A run is a score, a shape and a timestamp. Addresses are only ever
+  seen as a salted hash for rate limiting.
+- Never trust the page for anything the server can work out. The level on a
+  board is derived from the score, not accepted from the client.
 
 ## Behaviour invariants
 
@@ -69,6 +83,10 @@ These come from the Qt version and hold here too.
   immediate repeats.
 - Preserve keyboard access: arrows, `hjkl` and `wasd` steer; Space pauses or
   restarts; `m`, `b`, `f`, `r`, `p` and `n` keep their documented actions.
+- The level-clear screen must always be escapable. It waits for a strong beat
+  only while one might still arrive: `LEVEL_BEAT_WAIT_MS` ends the wait, and
+  after `LEVEL_SKIP_AFTER_MS` any key or a tap ends it. A silent or slow track
+  must never strand it.
 - The board is sized from the room its frame has left over, never by adding up
   its siblings. Anything given `max-width: var(--board-w)` must not change
   height with width, or the measurement becomes circular — which is why the

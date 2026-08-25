@@ -9,7 +9,9 @@
     "serve": "python3 -m http.server --directory public 8787",
     "deploy": "wrangler deploy",
     "test": "node --test test/*.test.js",
-    "check": "node --check public/snake/Game.js && node --check public/snake/Audio.js && node --check public/snake/Draw.js && node --check public/snake/Messages.js && node --check public/snake/Palette.js && node --check public/snake/web.js && npm test"
+    "check": "node --check public/snake/Game.js && node --check public/snake/Audio.js && node --check public/snake/Draw.js && node --check public/snake/Messages.js && node --check public/snake/Palette.js && node --check public/snake/Scores.js && node --check public/snake/web.js && node --check src/scores.js && node --check src/worker.js && npm test",
+    "db:local": "wrangler d1 migrations apply oh-no-more-snake --local",
+    "db:remote": "wrangler d1 migrations apply oh-no-more-snake --remote"
   },
   "devDependencies": {
     "wrangler": "^4.124.0"

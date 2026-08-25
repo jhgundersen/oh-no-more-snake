@@ -17,11 +17,15 @@ Workers alongside
 ## Play
 
 ```sh
-npm run serve     # http://localhost:8787, no dependencies
+npm install
+npm run db:local  # once, to create the local charts database
+npm run dev       # Wrangler prints the URL, normally http://localhost:8787
 ```
 
-or, with Wrangler installed, `npm run dev`. The game is ES modules, so it needs
-to be served — opening `public/index.html` from the filesystem will not work.
+`npm run serve` is a dependency-free alternative that serves `public/` with
+Python, but it has no Worker, so the charts will not answer. The game is ES
+modules either way, so it needs to be served — opening `public/index.html` from
+the filesystem will not work.
 
 ## Controls
 
@@ -35,6 +39,7 @@ to be served — opening `public/index.html` from the filesystem will not work.
 - `r` — start a fresh run
 - `t` — cycle the theme
 - `v` — fullscreen
+- `c` — charts
 - Escape — leave fullscreen, or pause
 
 On a touchscreen, drag on the board to steer and tap it to cycle the food skin.
@@ -88,7 +93,9 @@ ten bonus foods for eight seconds. Timing and positions are randomised every
 time.
 
 With the music on, a cleared level waits for a beat before the next one fades
-in.
+in — but not forever. A track too slow or too quiet to produce one gives up
+after two and a half seconds, and after the first second any key or a tap
+gets on with it.
 
 ## Your own music
 
@@ -96,6 +103,21 @@ Drop audio files anywhere on the page. They join the playlist, sorted by
 filename, and `n` cycles through them. This is the browser's answer to the
 desktop version's `~/.local/share/omasnake/music`; object URLs do not survive a
 reload, so dropped tracks last for the session.
+
+## Charts
+
+Press `c`. The four boards are the highest scores of the last 24 hours, 7 days
+and 30 days, and of all time — rolling windows, so no timezone has to be picked
+and everybody reads them the same way.
+
+There is nothing to type. A finished run is posted as a score, whether it was
+Levels or Endless, whether Party Mode was on, and when it ended. No name, no
+account, no cookie, nothing identifying. The level shown is derived from the
+score by the server rather than accepted from the page.
+
+Treat it as a community number rather than a leaderboard: anyone can post to a
+public endpoint. Submissions are bounded, idempotent per run, and rate-limited
+per minute against an address hashed with a Worker secret.
 
 ## Themes
 
@@ -127,9 +149,44 @@ npx wrangler login
 npm run deploy
 ```
 
-There is no Worker code and no API — `wrangler.jsonc` deploys `public/` as
-static assets and attaches both custom domains. Add a `main` if a scoreboard
-ever needs a server side.
+`wrangler.jsonc` deploys `public/` as static assets, attaches both custom
+domains, and runs the Worker first for `/api/*` only. The charts live in D1.
+
+Setting it up from scratch needs the database and the hashing salt:
+
+```sh
+npx wrangler d1 create oh-no-more-snake   # put the id in wrangler.jsonc
+npx wrangler secret put RATE_LIMIT_SALT   # any long random string
+npm run db:remote
+npm run deploy
+```
+
+### `GET /api/scores`
+
+```json
+{
+  "periods": {
+    "day": [{ "rank": 1, "score": 57, "level": 5, "mode": "levels", "party": true, "at": "2026-08-25 09:12:00" }],
+    "week": [], "month": [], "all": []
+  },
+  "runs": 1,
+  "size": 10
+}
+```
+
+### `POST /api/scores`
+
+```json
+{
+  "eventId": "550e8400-e29b-41d4-a716-446655440000",
+  "score": 57,
+  "mode": "levels",
+  "party": true
+}
+```
+
+The response is the updated boards. Reusing an `eventId` is idempotent, which
+is what makes the browser's retry queue safe.
 
 ## License
 

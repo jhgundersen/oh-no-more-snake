@@ -8,6 +8,7 @@ import { COLUMNS, ROWS, Game } from "./Game.js"
 import { MusicController } from "./Audio.js"
 import { draw, drawSplash, boardSize } from "./Draw.js"
 import { gameOverMessages, levelMessages, partyComboName, pickDifferent } from "./Messages.js"
+import { Charts, PERIOD_LABELS, describeRun, relativeTime } from "./Scores.js"
 import { darker, mixColors, nextTheme, preferredTheme, resolve, rgba, themes } from "./Palette.js"
 
 // --- storage -----------------------------------------------------------------
@@ -127,6 +128,14 @@ let levelMessage = ""
 let gameOverMessage = ""
 let gameOverMessageChosen = false
 let waitingForLevelBeat = false
+let levelTransitionStarted = 0
+let beatWaitStarted = 0
+
+// A slow track — or a quiet passage in a loud one — can leave the level-clear
+// screen waiting for a strong beat that is not coming. Two escapes: the wait
+// gives up on its own, and after a second anybody can press their way out.
+const LEVEL_BEAT_WAIT_MS = 2500
+const LEVEL_SKIP_AFTER_MS = 1000
 
 // Fruit plus the original plugin's Apple, GitHub, OpenAI and Linux Nerd Font
 // glyphs. The private-use glyphs need that exact family, and a browser without
@@ -241,10 +250,38 @@ const levelFadeOut = register(new Tween({
   onDone: () => {
     game.prepareNextLevel()
     // With music on, the next level starts on a beat rather than on a timer.
-    if (music.enabled) waitingForLevelBeat = true
-    else levelFadeIn.restart()
+    if (music.enabled) {
+      waitingForLevelBeat = true
+      beatWaitStarted = performance.now()
+    } else levelFadeIn.restart()
   }
 }))
+
+// The one way into the next level, whether a beat, the timeout or a keypress
+// asked for it.
+function startNextLevel() {
+  waitingForLevelBeat = false
+  game.completeLevelTransition()
+  levelFadeIn.restart()
+}
+
+// Cuts the level-clear screen short. Refused for the first second, so it
+// cannot swallow the key that cleared the level or hide the message unread.
+function skipLevelTransition() {
+  if (!game.levelTransition) return false
+  if (performance.now() - levelTransitionStarted < LEVEL_SKIP_AFTER_MS) return false
+  if (levelFadeOut.running) {
+    // Interrupted mid-fade, so the swap this normally happens after has not
+    // run yet. The next level still has to be built before it is shown.
+    levelFadeOut.stop()
+    game.prepareNextLevel()
+  }
+  waitingForLevelBeat = false
+  levelFadeIn.stop()
+  fx.boardContentOpacity = 1
+  game.completeLevelTransition()
+  return true
+}
 
 const musicFade = register(new Tween({
   from: 0, to: 0, duration: 650, curve: easing.inOutSine,
@@ -255,6 +292,7 @@ let musicPauseDelay = 0
 // --- game events -------------------------------------------------------------
 
 game.on("levelCompleted", () => {
+  levelTransitionStarted = performance.now()
   levelMessage = pickDifferent(levelMessages, levelMessage)
   announce(`Level ${game.completedLevel} cleared. ${levelMessage}`)
   levelFadeOut.restart()
@@ -327,6 +365,12 @@ game.on("statusChanged", () => {
     gameOverMessage = pickDifferent(gameOverMessages, gameOverMessage)
     gameOverMessageChosen = true
     announce(`Game over. Score ${game.score}. ${gameOverMessage}`)
+    if (game.score > 0) {
+      ownRun = { score: game.score, mode: game.endlessMode ? "endless" : "levels", party: music.enabled }
+      // Anything that failed earlier goes along with it.
+      charts.submit(ownRun)
+      chartsLoadedAt = Date.now()
+    }
   } else if (!game.gameOver) {
     gameOverMessageChosen = false
   }
@@ -336,11 +380,7 @@ game.on("statusChanged", () => {
 
 music.on("strongBeat", strength => {
   game.registerStrongBeat(strength)
-  if (waitingForLevelBeat) {
-    waitingForLevelBeat = false
-    game.completeLevelTransition()
-    levelFadeIn.restart()
-  }
+  if (waitingForLevelBeat) startNextLevel()
   fx.recordDanceBeat(strength)
   backgroundFlash.restart({ from: 0.07 + strength * 0.08, to: 0 })
 })
@@ -380,6 +420,22 @@ const STEERING = new Map([
 
 addEventListener("keydown", event => {
   if (event.ctrlKey || event.metaKey || event.altKey) return
+  // With the charts up, the board is not the thing being looked at. Escape is
+  // left to the dialog, which closes on it by itself.
+  if (chartsDialog.open) {
+    if (event.key.toLowerCase() === "c") {
+      closeCharts()
+      event.preventDefault()
+    }
+    return
+  }
+  // Any key gets on with it, and does nothing else — nobody means to switch
+  // mode with the key they pressed to leave the level-clear screen.
+  if (skipLevelTransition()) {
+    event.preventDefault()
+    updateHud()
+    return
+  }
   const key = event.key
   const steer = STEERING.get(key.length === 1 ? key.toLowerCase() : key)
   if (steer) game.turn(steer[0], steer[1])
@@ -395,6 +451,7 @@ addEventListener("keydown", event => {
       case "n": music.nextTrack(); break
       case "t": cycleTheme(); break
       case "v": toggleFullscreen(); break
+      case "c": openCharts(); break
       default: return
     }
   }
@@ -430,10 +487,11 @@ canvas.addEventListener("pointermove", event => {
   touch = { x: event.clientX, y: event.clientY, steered: true }
 })
 canvas.addEventListener("pointerup", () => {
-  if (touch && !touch.steered) {
+  // A phone has no key to press, so a tap is how it gets on with it there.
+  if (touch && !touch.steered && !skipLevelTransition()) {
     game.cycleFoodStyle(foods.length)
-    updateHud()
   }
+  updateHud()
   touch = null
 })
 canvas.addEventListener("contextmenu", event => event.preventDefault())
@@ -469,7 +527,9 @@ const buttons = [
   // Not "Fullscreen", because bolding its first letter would claim `f`, which
   // has cycled the food skin since the desktop version.
   { id: "view", letter: "V", rest: () => `iew: ${isFullscreen() ? "Fullscreen" : "Windowed"}`,
-    name: () => `View: ${isFullscreen() ? "Fullscreen" : "Windowed"}`, act: () => toggleFullscreen() }
+    name: () => `View: ${isFullscreen() ? "Fullscreen" : "Windowed"}`, act: () => toggleFullscreen() },
+  { id: "charts-open", letter: "C", rest: () => "harts",
+    name: () => "Charts, the highest scores", act: () => openCharts() }
 ]
 
 for (const button of buttons) {
@@ -478,6 +538,88 @@ for (const button of buttons) {
     updateHud()
   })
 }
+
+// --- charts ------------------------------------------------------------------
+
+const chartsDialog = el("charts")
+const chartsList = el("charts-list")
+const chartsNote = el("charts-note")
+const charts = new Charts({ store, onChange: () => renderCharts() })
+
+let chartsPeriod = "day"
+let chartsLoadedAt = 0
+// The run just finished, so it can be pointed out in the list it landed in.
+let ownRun = null
+
+function openCharts() {
+  // A modal over a moving board is how a run ends without anybody watching.
+  if (game.running && !game.gameOver) game.togglePause()
+  if (!chartsDialog.open) chartsDialog.showModal()
+  if (Date.now() - chartsLoadedAt > 30000) {
+    chartsLoadedAt = Date.now()
+    charts.load()
+  }
+  renderCharts()
+}
+
+function closeCharts() {
+  if (chartsDialog.open) chartsDialog.close()
+}
+
+function renderCharts() {
+  for (const tab of chartsDialog.querySelectorAll(".tab"))
+    tab.setAttribute("aria-selected", String(tab.dataset.period === chartsPeriod))
+
+  const board = charts.boards?.[chartsPeriod]
+  chartsList.replaceChildren()
+
+  if (charts.state === "loading" && !charts.boards) {
+    chartsNote.textContent = "Reading the charts…"
+    return
+  }
+  if (charts.state === "error" && !charts.boards) {
+    chartsNote.textContent = "The charts are not answering. Your run is saved and will be sent later."
+    return
+  }
+  if (!board?.length) {
+    chartsNote.textContent = `Nothing in the last ${PERIOD_LABELS[chartsPeriod].toLowerCase()} yet. Go on then.`
+    return
+  }
+
+  const now = Date.now()
+  for (const entry of board) {
+    const row = document.createElement("li")
+    if (ownRun && entry.score === ownRun.score && entry.mode === ownRun.mode && entry.party === ownRun.party
+      && Math.abs(now - Date.parse(`${entry.at.replace(" ", "T")}Z`)) < 120000) {
+      row.className = "mine"
+    }
+    const rank = document.createElement("span")
+    rank.className = "rank"
+    rank.textContent = `${entry.rank}.`
+    const middle = document.createElement("span")
+    const score = document.createElement("span")
+    score.className = "score"
+    score.textContent = entry.score
+    const run = document.createElement("span")
+    run.className = "run"
+    run.textContent = `  ${describeRun(entry)}`
+    middle.append(score, run)
+    const when = document.createElement("span")
+    when.className = "when"
+    when.textContent = relativeTime(entry.at, now)
+    row.append(rank, middle, when)
+    chartsList.append(row)
+  }
+  chartsNote.textContent = `Top ${board.length} of ${charts.runs.toLocaleString("en")} runs. No names, no accounts — just the number.`
+}
+
+for (const tab of chartsDialog.querySelectorAll(".tab")) {
+  tab.addEventListener("click", () => {
+    chartsPeriod = tab.dataset.period
+    renderCharts()
+  })
+}
+el("charts-close").addEventListener("click", closeCharts)
 
 // --- fullscreen --------------------------------------------------------------
 
@@ -659,6 +801,10 @@ function frame(now) {
   lastFrame = now
 
   for (const tween of tweens) tween.update(now)
+
+  // A track too slow or too quiet to produce a strong beat must not leave the
+  // level-clear screen up forever.
+  if (waitingForLevelBeat && now - beatWaitStarted > LEVEL_BEAT_WAIT_MS) startNextLevel()
 
   if (musicPauseDelay > 0) {
     musicPauseDelay -= delta

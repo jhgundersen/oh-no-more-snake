@@ -299,6 +299,126 @@
 			font-weight: 700;
 		}
 
+		dialog {
+			width: min(92vw, 460px);
+			max-height: 82svh;
+			padding: 0;
+			border: 1px solid var(--button-border);
+			border-radius: 14px;
+			background: var(--bg);
+			color: var(--fg);
+			font-family: inherit;
+			overflow: hidden;
+		}
+
+		dialog::backdrop {
+			background: rgb(0 0 0 / 0.62);
+		}
+
+		.charts-head {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			padding: 14px 16px 10px;
+		}
+
+		.charts-head h2 {
+			margin: 0;
+			font-size: 17px;
+			font-weight: 700;
+			letter-spacing: 0.06em;
+		}
+
+		#charts-close {
+			height: 28px;
+			padding: 0 10px;
+			border-radius: 8px;
+		}
+
+		.tabs {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 6px;
+			padding: 0 16px 12px;
+		}
+
+		.tab {
+			height: 28px;
+			padding: 0 10px;
+			font-size: 12px;
+			border-radius: 8px;
+			background: transparent;
+			border-color: var(--muted);
+			color: var(--muted);
+		}
+
+		.tab:hover {
+			background: var(--combo-trough);
+			color: var(--fg);
+		}
+
+		.tab[aria-selected="true"] {
+			background: var(--accent);
+			border-color: var(--button-border);
+			color: var(--bg);
+		}
+
+		#charts-list {
+			margin: 0;
+			padding: 0 16px;
+			max-height: 46svh;
+			overflow-y: auto;
+			list-style: none;
+		}
+
+		#charts-list li {
+			display: grid;
+			grid-template-columns: 2.2em 1fr auto;
+			align-items: baseline;
+			gap: 10px;
+			padding: 7px 0;
+			border-top: 1px solid var(--combo-trough);
+		}
+
+		#charts-list li:first-child {
+			border-top: 0;
+		}
+
+		.rank {
+			color: var(--muted);
+			font-size: 12px;
+		}
+
+		.score {
+			font-weight: 700;
+		}
+
+		.run {
+			color: var(--muted);
+			font-size: 12px;
+		}
+
+		.when {
+			color: var(--muted);
+			font-size: 11px;
+			text-align: right;
+		}
+
+		/* The run you just finished, so it can be picked out of the list. */
+		#charts-list li.mine .score,
+		#charts-list li.mine .rank {
+			color: var(--accent);
+		}
+
+		#charts-note {
+			margin: 0;
+			padding: 12px 16px 14px;
+			font-size: 11px;
+			line-height: 1.6;
+			color: var(--muted);
+		}
+
 		/* Full-page, above everything, and never in the way of a click. */
 		#splash {
 			position: fixed;
@@ -365,6 +485,7 @@
 				<button type="button" id="mode"></button>
 				<button type="button" id="borders"></button>
 				<button type="button" id="food"></button>
+				<button type="button" id="charts-open"></button>
 			</div>
 			<div class="row">
 				<button type="button" id="party"></button>
@@ -374,8 +495,23 @@
 			</div>
 		</div>
 
-		<!-- Inside the stage, or fullscreen would render neither: only the
+		<!-- Inside the stage, or fullscreen would render none of them: only the
 		     fullscreen element's own subtree is drawn. -->
+		<dialog id="charts" aria-labelledby="charts-title">
+			<div class="charts-head">
+				<h2 id="charts-title">CHARTS</h2>
+				<button type="button" id="charts-close" aria-label="Close charts">✕</button>
+			</div>
+			<div class="tabs" role="tablist" aria-label="Chart period">
+				<button type="button" class="tab" role="tab" data-period="day">24 hours</button>
+				<button type="button" class="tab" role="tab" data-period="week">7 days</button>
+				<button type="button" class="tab" role="tab" data-period="month">30 days</button>
+				<button type="button" class="tab" role="tab" data-period="all">All time</button>
+			</div>
+			<ol id="charts-list"></ol>
+			<p id="charts-note"></p>
+		</dialog>
+
 		<canvas id="splash" hidden></canvas>
 		<p id="status" class="sr-only" role="status" aria-live="polite"></p>
 	</main>
