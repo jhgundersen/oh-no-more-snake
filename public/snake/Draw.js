@@ -466,13 +466,14 @@ function drawFinish(ctx, view, width, height) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.55)"
   ctx.fillRect(0, 0, width, height)
 
-  if (head) {
-    // The last segment left, thrashing.
-    const shake = finishing ? Math.sin(performance.now() / 26) * cell * 0.22 : 0
+  // While the finish is still being decided, the last segment sits there
+  // thrashing. Once a move has been chosen, that move owns the head — and
+  // eventually stops owning it, at some speed, in several directions.
+  if (head && !finishing) {
     const pulse = 1 + 0.14 * Math.sin(performance.now() / 120)
     const boss = bossFor(view.bossNumber)
     ctx.save()
-    ctx.translate((head.x + 0.5) * cell + shake, (head.y + 0.5) * cell)
+    ctx.translate((head.x + 0.5) * cell, (head.y + 0.5) * cell)
     ctx.scale(pulse, pulse)
     fillRound(ctx, -cell / 2, -cell / 2, cell - 2, cell - 2, cell * 0.25, boss.skin)
     ctx.restore()
@@ -540,10 +541,98 @@ function drawFinish(ctx, view, width, height) {
 
 const bossBlock = (ctx, boss, x, y, size, radius) => fillRound(ctx, x - size / 2, y - size / 2, size, size, radius, boss.skin)
 
+// Deterministic per-particle noise. The burst has to look the same on every
+// frame it is drawn at, and keeping no state is what guarantees that.
+const scatter = (i, salt) => {
+  const value = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453
+  return value - Math.floor(value)
+}
+
+const BLOOD = ["#c1121f", "#8b0000", "#ff4d4d", "#6b0f1a"]
+
+// The head coming apart. `t` runs 0 to 1 across the burst; everything else is
+// how it comes apart — which way, how hard, and whether in drops or in chunks.
+function gore(ctx, {
+  x, y, cell, t, boss,
+  count = 30,
+  baseAngle = 0,
+  spread = Math.PI * 2,
+  speed = 1,
+  gravity = 1,
+  chunky = false
+}) {
+  if (t <= 0) return
+  const fade = Math.max(0, 1 - t * 0.85)
+
+  // The flash of the moment itself.
+  if (t < 0.22) {
+    const flash = 1 - t / 0.22
+    ctx.globalAlpha = flash * 0.85
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, cell * (1.5 + t * 8))
+    glow.addColorStop(0, "#fff3f3")
+    glow.addColorStop(0.4, "#ff4d4d")
+    glow.addColorStop(1, "rgba(193, 18, 31, 0)")
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(x, y, cell * (1.5 + t * 8), 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+
+  for (let i = 0; i < count; ++i) {
+    const angle = baseAngle + (scatter(i, 3) - 0.5) * spread
+    const velocity = cell * (2 + scatter(i, 7) * 5) * speed
+    const px = x + Math.cos(angle) * velocity * t
+    const py = y + Math.sin(angle) * velocity * t + gravity * cell * 10 * t * t
+    const size = Math.max(1.3, cell * (0.06 + scatter(i, 11) * 0.14) * (0.55 + fade * 0.45))
+    ctx.globalAlpha = fade
+    // Mostly blood, and some of whatever it was made of.
+    const bit = scatter(i, 13)
+    ctx.fillStyle = bit < 0.7 ? BLOOD[i % BLOOD.length] : bit < 0.88 ? boss.skin : boss.dark
+
+    if (chunky && bit >= 0.7) {
+      ctx.save()
+      ctx.translate(px, py)
+      ctx.rotate(angle + t * 6)
+      ctx.fillRect(-size, -size, size * 2, size * 2)
+      ctx.restore()
+    } else {
+      ctx.beginPath()
+      // Drops stretch along the way they are travelling.
+      ctx.ellipse(px, py, size * (1 + t * 0.8), size, angle, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+  ctx.globalAlpha = 1
+}
+
+// What is left on the floor afterwards. Appears with the burst and stays.
+function splatter(ctx, { x, y, cell, t, count = 9, baseAngle = 0, spread = Math.PI * 2, reach = 3 }) {
+  if (t <= 0) return
+  const settle = Math.min(1, t * 3)
+  ctx.globalAlpha = 0.6 * Math.max(0, 1 - t * 0.5)
+  for (let i = 0; i < count; ++i) {
+    const angle = baseAngle + (scatter(i, 17) - 0.5) * spread
+    const distance = cell * reach * (0.25 + scatter(i, 19) * 0.75) * settle
+    const size = cell * (0.1 + scatter(i, 23) * 0.22)
+    ctx.fillStyle = BLOOD[(i + 1) % BLOOD.length]
+    ctx.beginPath()
+    ctx.ellipse(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance,
+      size, size * (0.5 + scatter(i, 29) * 0.6), angle, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.globalAlpha = 1
+}
+
+// How far through a burst we are, given when it starts.
+const after = (progress, bang) => (progress < bang ? 0 : (progress - bang) / (1 - bang))
+
 const FATALITY_ANIMATIONS = {
-  // The board tears itself into bands, then goes the colour of a crash.
+  // The board tears itself into bands, and then the head shatters with it.
   "kernel-panic": (ctx, { boss, centre, cell, width, height, progress }) => {
-    const violence = progress < 0.65 ? 1 : Math.max(0, 1 - (progress - 0.65) / 0.35)
+    const bang = 0.6
+    const burst = after(progress, bang)
+    const violence = progress < bang ? 1 : Math.max(0, 1 - burst)
     const bands = 14
     for (let i = 0; i < bands; ++i) {
       const bandHeight = height / bands
@@ -554,96 +643,137 @@ const FATALITY_ANIMATIONS = {
     }
     ctx.globalAlpha = 1
 
-    const shake = (Math.random() - 0.5) * cell * violence
-    bossBlock(ctx, boss, centre.x + shake, centre.y + shake, (cell - 2) * (1 - progress * 0.4), cell * 0.25)
-
-    if (progress > 0.55) {
-      ctx.globalAlpha = Math.min(0.92, (progress - 0.55) / 0.2)
-      ctx.fillStyle = "#1e1e6e"
-      ctx.fillRect(0, 0, width, height)
-      ctx.globalAlpha = 1
-      const rows = 5
-      for (let i = 0; i < rows; ++i) {
-        const line = Array.from({ length: 18 }, () => Math.floor(Math.random() * 16).toString(16)).join("")
-        label(ctx, `0x${line}`, width / 2, height * 0.62 + i * 15, 11, "#9fb3ff", { bold: false })
-      }
+    if (!burst) {
+      const shake = (Math.random() - 0.5) * cell * violence
+      bossBlock(ctx, boss, centre.x + shake, centre.y + shake, (cell - 2) * (1 - progress * 0.4), cell * 0.25)
+      return
     }
+    // The crash screen goes down first so the mess lands on top of it.
+    ctx.globalAlpha = Math.min(0.9, burst * 1.4)
+    ctx.fillStyle = "#1e1e6e"
+    ctx.fillRect(0, 0, width, height)
+    ctx.globalAlpha = 1
+    for (let i = 0; i < 5; ++i) {
+      const line = Array.from({ length: 18 }, () => Math.floor(Math.random() * 16).toString(16)).join("")
+      label(ctx, `0x${line}`, width / 2, height * 0.34 + i * 15, 11, "#9fb3ff", { bold: false })
+    }
+
+    splatter(ctx, { x: centre.x, y: centre.y, cell, t: burst, count: 12, reach: 4 })
+    gore(ctx, { x: centre.x, y: centre.y, cell, t: burst, boss, count: 40, speed: 1.25, chunky: true })
   },
 
-  // It comes apart into two versions of itself, and neither one wins.
-  "merge-conflict": (ctx, { boss, centre, cell, width, theme, progress }) => {
-    const drift = progress * cell * 4.5
-    const size = (cell - 2) * (1 - progress * 0.25)
-    ctx.globalAlpha = 1 - progress * 0.5
-    bossBlock(ctx, boss, centre.x - drift, centre.y, size, cell * 0.25)
-    bossBlock(ctx, boss, centre.x + drift, centre.y, size, cell * 0.25)
-    ctx.globalAlpha = 1
+  // Two versions of it, and both of them burst.
+  "merge-conflict": (ctx, { boss, centre, cell, theme, progress }) => {
+    const bang = 0.62
+    const burst = after(progress, bang)
+    const drift = Math.min(progress, bang) * cell * 4.5
 
-    // Conflict markers, opening up between the two halves.
+    if (!burst) {
+      const size = (cell - 2) * (1 - progress * 0.25)
+      bossBlock(ctx, boss, centre.x - drift, centre.y, size, cell * 0.25)
+      bossBlock(ctx, boss, centre.x + drift, centre.y, size, cell * 0.25)
+    } else {
+      for (const side of [-1, 1]) {
+        const x = centre.x + drift * side
+        splatter(ctx, { x, y: centre.y, cell, t: burst, count: 7, baseAngle: side > 0 ? 0 : Math.PI, spread: Math.PI, reach: 2.6 })
+        gore(ctx, {
+          x, y: centre.y, cell, t: burst, boss, count: 22,
+          baseAngle: side > 0 ? 0 : Math.PI, spread: Math.PI * 1.1, speed: 1.1
+        })
+      }
+    }
+
     const gap = Math.max(12, cell * 0.5)
-    ctx.globalAlpha = Math.min(1, progress * 2.2)
+    ctx.globalAlpha = Math.min(1, progress * 2.2) * (burst ? Math.max(0, 1 - burst) : 1)
     label(ctx, "<<<<<<< HEAD", centre.x, centre.y - gap, Math.max(10, cell * 0.4), theme.foreground, { bold: false })
     label(ctx, "=======", centre.x, centre.y + 4, Math.max(10, cell * 0.4), "#ff4d4d", { bold: false })
     label(ctx, ">>>>>>> them", centre.x, centre.y + gap + 4, Math.max(10, cell * 0.4), theme.foreground, { bold: false })
     ctx.globalAlpha = 1
   },
 
-  // Swept up and taken away, with no live references left to argue.
+  // Swept up, and then swept up rather harder.
   "garbage-collected": (ctx, { boss, centre, cell, theme, progress }) => {
-    // Everything spirals inwards and is carried off upwards.
-    const lift = cell * 5 * progress
+    const bang = 0.72
+    const burst = after(progress, bang)
+    const held = Math.min(progress, bang)
+    const lift = cell * 5 * held
+
     for (let i = 0; i < 22; ++i) {
-      const phase = (progress * 1.6 + i / 22) % 1
-      const angle = i * 2.4 + progress * 6
+      const phase = (held * 1.6 + i / 22) % 1
+      const angle = i * 2.4 + held * 6
       const radius = cell * 2.8 * (1 - phase)
-      const x = centre.x + Math.cos(angle) * radius
-      const y = centre.y + Math.sin(angle) * radius - lift * phase
-      ctx.globalAlpha = (1 - phase) * 0.85
+      ctx.globalAlpha = (1 - phase) * 0.85 * (1 - burst)
       ctx.fillStyle = i % 2 === 0 ? boss.skin : theme.accent
       ctx.beginPath()
-      ctx.arc(x, y, Math.max(1.5, cell * 0.1 * (1 - phase)), 0, Math.PI * 2)
+      ctx.arc(centre.x + Math.cos(angle) * radius, centre.y + Math.sin(angle) * radius - lift * phase,
+        Math.max(1.5, cell * 0.1 * (1 - phase)), 0, Math.PI * 2)
       ctx.fill()
     }
     ctx.globalAlpha = 1
 
-    ctx.save()
-    ctx.translate(centre.x, centre.y - lift)
-    ctx.rotate(progress * Math.PI * 3)
-    const size = (cell - 2) * Math.max(0, 1 - progress)
-    fillRound(ctx, -size / 2, -size / 2, size, size, cell * 0.25, boss.skin)
-    ctx.restore()
+    const x = centre.x
+    const y = centre.y - lift
+    if (!burst) {
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(held * Math.PI * 3)
+      const size = (cell - 2) * Math.max(0.35, 1 - held)
+      fillRound(ctx, -size / 2, -size / 2, size, size, cell * 0.25, boss.skin)
+      ctx.restore()
+      return
+    }
+    // Taken up the pipe: everything goes with it, and very little comes down.
+    gore(ctx, {
+      x, y, cell, t: burst, boss, count: 34,
+      baseAngle: -Math.PI / 2, spread: Math.PI * 0.9, speed: 1.3, gravity: -0.35
+    })
+    splatter(ctx, { x, y, cell, t: burst, count: 6, baseAngle: -Math.PI / 2, spread: Math.PI, reach: 2.2 })
   },
 
-  // Popped one frame at a time, politely, in order.
+  // Popped one frame at a time, and the last one is the head.
   "stack-unwound": (ctx, { boss, centre, cell, theme, progress }) => {
+    const bang = 0.76
+    const burst = after(progress, bang)
     const frames = 6
-    for (let i = 0; i < frames; ++i) {
-      const popAt = i / frames
-      const size = cell - 2
+    const size = cell - 2
+
+    for (let i = 1; i < frames; ++i) {
+      const popAt = (i / frames) * bang
       if (progress < popAt) {
-        // Still on the stack, waiting its turn.
         ctx.globalAlpha = 0.85
-        fillRound(ctx, centre.x - size / 2, centre.y - size / 2 - i * (size + 3), size, size, cell * 0.2,
-          i === 0 ? boss.skin : boss.dark)
+        fillRound(ctx, centre.x - size / 2, centre.y - size / 2 - i * (size + 3), size, size, cell * 0.2, boss.dark)
         ctx.lineWidth = 1
         ctx.strokeStyle = theme.foreground
         ctx.stroke()
       } else {
-        // Popped: rising and fading out of the frame.
         const flight = Math.min(1, (progress - popAt) * 3)
         ctx.globalAlpha = (1 - flight) * 0.9
-        const y = centre.y - i * (size + 3) - flight * cell * 6
-        fillRound(ctx, centre.x - size / 2 + (i % 2 ? 1 : -1) * flight * cell, y - size / 2, size, size, cell * 0.2, boss.dark)
+        fillRound(ctx, centre.x - size / 2 + (i % 2 ? 1 : -1) * flight * cell,
+          centre.y - i * (size + 3) - flight * cell * 6 - size / 2, size, size, cell * 0.2, boss.dark)
       }
     }
     ctx.globalAlpha = 1
+
+    if (!burst) {
+      bossBlock(ctx, boss, centre.x, centre.y, size, cell * 0.2)
+      return
+    }
+    // The base frame goes last, and it goes downwards.
+    gore(ctx, {
+      x: centre.x, y: centre.y, cell, t: burst, boss, count: 32,
+      baseAngle: Math.PI / 2, spread: Math.PI * 1.4, speed: 0.9, gravity: 2.2, chunky: true
+    })
+    splatter(ctx, { x: centre.x, y: centre.y, cell, t: burst, count: 10, baseAngle: Math.PI / 2, spread: Math.PI, reach: 3.4 })
   },
 
-  // Blasted off the board, history rewritten behind it.
+  // Blasted across the board, and stopped by the far wall.
   "force-pushed": (ctx, { boss, centre, cell, width, height, theme, progress }) => {
-    const eased = progress * progress
-    const x = centre.x + eased * width
-    // Shockwave from where it was standing.
+    const bang = 0.66
+    const burst = after(progress, bang)
+    const travel = Math.min(progress, bang) / bang
+    const wallX = width - cell * 0.9
+    const x = centre.x + (wallX - centre.x) * travel * travel
+
     for (let ring = 0; ring < 3; ++ring) {
       const phase = Math.max(0, Math.min(1, progress * 1.6 - ring * 0.18))
       if (phase <= 0 || phase >= 1) continue
@@ -656,15 +786,22 @@ const FATALITY_ANIMATIONS = {
     }
     ctx.globalAlpha = 1
 
-    // Motion trails, thinning out behind it.
     for (let i = 6; i >= 0; --i) {
       const trailX = x - i * cell * 0.9
       if (trailX < -cell) continue
-      ctx.globalAlpha = (1 - i / 7) * (1 - progress * 0.4)
-      const size = (cell - 2) * (1 - i * 0.07)
-      bossBlock(ctx, boss, trailX, centre.y, size, cell * 0.25)
+      ctx.globalAlpha = (1 - i / 7) * (1 - progress * 0.4) * (burst ? Math.max(0, 1 - burst * 2) : 1)
+      bossBlock(ctx, boss, trailX, centre.y, (cell - 2) * (1 - i * 0.07), cell * 0.25)
     }
     ctx.globalAlpha = 1
+
+    if (burst) {
+      // Against the wall, so everything comes back the way it went.
+      gore(ctx, {
+        x: wallX, y: centre.y, cell, t: burst, boss, count: 34,
+        baseAngle: Math.PI, spread: Math.PI * 1.2, speed: 1.15, gravity: 1.4
+      })
+      splatter(ctx, { x: wallX, y: centre.y, cell, t: burst, count: 11, baseAngle: Math.PI, spread: Math.PI * 0.9, reach: 3 })
+    }
 
     if (progress > 0.72) {
       ctx.globalAlpha = Math.min(1, (progress - 0.72) / 0.2)
@@ -673,14 +810,24 @@ const FATALITY_ANIMATIONS = {
     }
   },
 
-  // Nothing happens, at length.
+  // Nothing happens, at length, and then a little happens.
   mercy: (ctx, { boss, centre, cell, theme, progress }) => {
-    const sag = Math.min(1, progress * 1.2)
-    const size = (cell - 2) * (1 - sag * 0.55)
-    ctx.globalAlpha = 1 - sag * 0.5
-    fillRound(ctx, centre.x - size / 2, centre.y - size / 2 + sag * cell * 0.4, size, size * (1 - sag * 0.3), cell * 0.25, boss.skin)
-    ctx.globalAlpha = 1
-    if (progress > 0.25) {
+    const bang = 0.82
+    const burst = after(progress, bang)
+    const sag = Math.min(1, Math.min(progress, bang) * 1.2)
+
+    if (!burst) {
+      const size = (cell - 2) * (1 - sag * 0.55)
+      ctx.globalAlpha = 1 - sag * 0.3
+      fillRound(ctx, centre.x - size / 2, centre.y - size / 2 + sag * cell * 0.4,
+        size, size * (1 - sag * 0.3), cell * 0.25, boss.skin)
+      ctx.globalAlpha = 1
+    } else {
+      gore(ctx, { x: centre.x, y: centre.y, cell, t: burst, boss, count: 12, speed: 0.5, gravity: 2 })
+      splatter(ctx, { x: centre.x, y: centre.y, cell, t: burst, count: 4, reach: 1.4 })
+    }
+
+    if (progress > 0.25 && !burst) {
       ctx.globalAlpha = Math.min(1, (progress - 0.25) * 3) * 0.8
       label(ctx, ". . .", centre.x, centre.y - cell * 1.1, Math.max(12, cell * 0.6), theme.muted, { bold: false })
       ctx.globalAlpha = 1

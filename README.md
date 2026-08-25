@@ -131,8 +131,14 @@ seconds to press one of these:
 | `← ← → →` | Stack Unwound |
 | `↑ ↓ ← →` | Force Pushed |
 
+Each one has its own animation, and each one ends with the boss's head coming
+apart: shattered with the screen in Kernel Panic, blown back off the far wall
+in Force Pushed, carried up the pipe in Garbage Collected. There is a
+considerable amount of blood, which for a game about a snake eating an Apple
+logo felt like the right call.
+
 Only the last four inputs count, so a fumbled start costs nothing. Hesitating
-past five seconds is a finish too — a worse one. Winning pays for the level it
+past five seconds is a finish too — a worse one, and it still ends the same way. Winning pays for the level it
 cleared, and whatever was scored during the fight is kept on top.
 
 The six bosses cycle: Null Pointer, Segfault, Deadlock, Stack Overflow, Race
