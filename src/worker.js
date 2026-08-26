@@ -78,9 +78,34 @@ async function recordScore(request, env) {
   return json(await readBoards(env))
 }
 
+// Whether a visitor reached Cloudflare over plain http, and where to send them
+// instead. `cf-visitor` is the only thing that knows: the request URL is not
+// to be trusted, because `wrangler dev` rewrites it to the production route,
+// so a local session looks exactly like an insecure production one. No header,
+// no redirect — which is also what keeps `npm run dev` on http working.
+function httpsRedirect(request, url) {
+  let scheme = null
+  try {
+    scheme = JSON.parse(request.headers.get("cf-visitor") || "{}").scheme
+  } catch {
+    // A malformed header is not worth a 500, and not worth a redirect either.
+  }
+  if (scheme !== "http") return null
+
+  const target = `https://${url.host}${url.pathname}${url.search}`
+  // Whatever happens, never send anybody back where they already are.
+  return target === request.url ? null : target
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
+
+    // Plain http is not a secure context, and a page served in one has no
+    // `crypto.randomUUID` — which is exactly where posting a score fell over.
+    // The game copes without it now, but no visitor should be there at all.
+    const secure = httpsRedirect(request, url)
+    if (secure) return Response.redirect(secure, 301)
 
     // Signing is stateless, so handing these out costs nothing and needs no
     // rate limit. Holding one is not the scarce thing — the time it measures is.

@@ -73,6 +73,15 @@ right and this one has a bug — with the deliberate exceptions listed under
 - The charts carry no names, no accounts and nothing identifying, and must not
   start. A run is a score, a shape and a timestamp. Addresses are only ever
   seen as a salted hash for rate limiting.
+- Nothing in the page may assume a secure context. Over plain http there is no
+  `crypto.randomUUID` and no `crypto.subtle`, and reaching for one throws where
+  the score is posted — which is exactly how score submission broke. Event ids
+  fall back to `getRandomValues`, and posting a score can never throw its way
+  out of a game over.
+- The http-to-https redirect keys off `cf-visitor` and nothing else. `wrangler
+  dev` rewrites the request URL to the production route, so a local session
+  looks identical to an insecure production one; guarding on the URL's host or
+  scheme redirected localhost to itself, forever.
 - Never trust the page for anything the server can work out. The level on a
   board is derived from the score, and how long a run took is measured by the
   server's clock at both ends — neither is accepted from the client.

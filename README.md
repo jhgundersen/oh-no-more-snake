@@ -244,7 +244,10 @@ npm run deploy
 ```
 
 `wrangler.jsonc` deploys `public/` as static assets, attaches both custom
-domains, and runs the Worker first for `/api/*` only. The charts live in D1.
+domains, and runs the Worker first for `/api/*` and the page itself — the
+latter so an http visitor is sent to https, since a page served insecurely has
+no `crypto.randomUUID` and half the web platform behaves differently. The
+charts live in D1.
 
 Setting it up from scratch needs the database and the hashing salt:
 

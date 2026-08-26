@@ -17,6 +17,33 @@ export const PERIOD_LABELS = {
   all: "All time"
 }
 
+// `crypto.randomUUID` exists only in a secure context, so over plain http —
+// a phone pointed at a laptop on the LAN, say — it is simply not there, and
+// asking for one threw where the score was posted. `getRandomValues` has no
+// such restriction, and a version 4 UUID is only sixteen bytes with six bits
+// pinned, so this needs nothing the page cannot have.
+export function uuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID()
+
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; ++i) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 1
+
+  const hex = [...bytes].map(byte => byte.toString(16).padStart(2, "0"))
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join("")
+  ].join("-")
+}
+
 // A run that could not be posted waits in local storage rather than being
 // lost — the next game over sends it along with its own.
 function readPending(store) {
@@ -86,10 +113,19 @@ export class Charts {
   // Called once per finished run. Failures queue and are retried on the next
   // one, which is why this never rejects.
   async submit(run) {
+    try {
+      await this.post(run)
+    } catch {
+      // Nothing about posting a score is worth interrupting a game over for.
+      this.submitting = false
+    }
+  }
+
+  async post(run) {
     const queued = readPending(this.store)
     // A run with no token cannot be charted, so it is not worth queueing.
     if (run && this.token) {
-      queued.push({ ...run, eventId: crypto.randomUUID(), token: this.token })
+      queued.push({ ...run, eventId: uuid(), token: this.token })
       this.token = null
     }
     if (!queued.length || this.submitting) return

@@ -7,6 +7,7 @@ import assert from "node:assert/strict"
 import { MAX_SCORE, PERIODS, parseScoreReport, shapeBoard } from "../src/scores.js"
 
 const ID = "550e8400-e29b-41d4-a716-446655440000"
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const valid = { eventId: ID, score: 40, mode: "levels", party: false }
 
 test("a well-formed report is accepted", () => {
@@ -121,4 +122,29 @@ test("a token cannot be left to mature, and time cannot run backwards", () => {
   assert.ok(implausible(10, "levels", MAX_RUN_MS + 1))
   assert.ok(implausible(10, "levels", -1))
   assert.ok(implausible(10, "levels", Number.NaN))
+})
+
+// --- event ids --------------------------------------------------------------
+
+import { uuid } from "../public/snake/Scores.js"
+
+test("an event id can be made without crypto.randomUUID", () => {
+  // Over plain http the page is not a secure context and `crypto.randomUUID`
+  // does not exist. Asking for one threw, and the score never left the page.
+  const real = globalThis.crypto.randomUUID
+  try {
+    Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true })
+    const made = Array.from({ length: 500 }, uuid)
+    for (const id of made) assert.match(id, UUID_PATTERN, `${id} is not a UUID the server would take`)
+    assert.equal(new Set(made).size, made.length, "and they are not all the same one")
+    // Version 4, variant 1, as the pattern the endpoint accepts requires.
+    assert.ok(made.every(id => id[14] === "4" && "89ab".includes(id[19])))
+  } finally {
+    Object.defineProperty(globalThis.crypto, "randomUUID", { value: real, configurable: true })
+  }
+})
+
+test("the event ids it makes are the ones the endpoint accepts", () => {
+  const report = parseScoreReport({ eventId: uuid(), score: 40, mode: "levels", party: false })
+  assert.ok(report, "a freshly minted id is refused by our own validator")
 })

@@ -15,12 +15,14 @@
 		}
 	],
 
-	// The game is static files; only /api/* needs the Worker, so only /api/*
-	// reaches it. Everything else is served straight from the asset store.
+	// The game is static files, so almost everything is served straight from
+	// the asset store. The Worker sees /api/* because that is its job, and the
+	// page itself so that it can send an http visitor to https — once the
+	// document is secure, every relative URL under it is too.
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS",
-		"run_worker_first": ["/api/*"]
+		"run_worker_first": ["/api/*", "/"]
 	},
 
 	"d1_databases": [
