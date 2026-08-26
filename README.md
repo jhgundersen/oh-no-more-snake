@@ -213,6 +213,12 @@ None of that makes a posted number true — the client is still the thing doing
 the counting. It makes a made-up one cost the time it claims to have taken,
 which for a game about a snake is the right amount of effort to demand.
 
+## Credits
+
+The four logo food skins are glyphs from [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts)
+(MIT), subset from its Symbols-Only font to just those four and served with the
+page so they render without anything installed locally.
+
 ## Themes
 
 Ten palettes in the Omarchy house style, dark and light. The first load follows

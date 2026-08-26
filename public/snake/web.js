@@ -141,30 +141,34 @@ let beatWaitStarted = 0
 const LEVEL_BEAT_WAIT_MS = 2500
 const LEVEL_SKIP_AFTER_MS = 1000
 
-// Fruit plus the original plugin's Apple, GitHub, OpenAI and Linux Nerd Font
-// glyphs. The private-use glyphs need that exact family, and a browser without
-// it would draw four identical boxes — so they join the cycle only once the
-// font has answered for itself.
-const NERD_FAMILY = '"JetBrainsMono Nerd Font", "JetBrainsMono NF", monospace'
-const allFoods = [
+// Fruit plus the original plugin's four Nerd Font logos: Apple, GitHub, Docker
+// and Linux. The desktop version calls the third one OpenAI, but U+F0868 has
+// always been `md-docker` and a Docker whale is what it draws — the name was
+// wrong, not the glyph, so the glyph stays.
+//
+// All four are private-use codepoints that used to need the font installed
+// locally, so most players never saw them. The page now carries them itself.
+const SYMBOL_FAMILY = '"Snake Symbols", "JetBrainsMono Nerd Font", monospace'
+const foods = [
   { glyph: "🍎", family: "sans-serif" },
   { glyph: "🍇", family: "sans-serif" },
   { glyph: "🍓", family: "sans-serif" },
   { glyph: "🍒", family: "sans-serif" },
   { glyph: "🍉", family: "sans-serif" },
-  { glyph: "\u{f0035}", family: NERD_FAMILY, nerd: true },
-  { glyph: "\u{f02a4}", family: NERD_FAMILY, nerd: true },
-  { glyph: "\u{f0868}", family: NERD_FAMILY, nerd: true },
-  { glyph: "\u{f17c}", family: NERD_FAMILY, nerd: true }
+  { glyph: "\u{f0035}", family: SYMBOL_FAMILY },
+  { glyph: "\u{f02a4}", family: SYMBOL_FAMILY },
+  { glyph: "\u{f0868}", family: SYMBOL_FAMILY },
+  { glyph: "\u{f17c}", family: SYMBOL_FAMILY }
 ]
-let foods = allFoods.filter(food => !food.nerd)
 
-async function detectNerdFont() {
+// The board is canvas, and canvas will happily draw a glyph before its font
+// has arrived — as a blank. Waiting for it is one line and saves a mystery.
+async function loadSymbols() {
   try {
+    await document.fonts.load(`16px ${SYMBOL_FAMILY}`, "\u{f0035}")
     await document.fonts.ready
-    if (document.fonts.check('16px "JetBrainsMono Nerd Font"')) foods = allFoods
   } catch {
-    // Leaving the five fruit in place is the safe answer.
+    // Without it the four fall back to whatever the system has, as before.
   }
 }
 
@@ -1066,7 +1070,7 @@ if (debugKeys) {
 applyTheme()
 if (fullParameter()) setFaux(true)
 resize()
-detectNerdFont().then(resize)
+loadSymbols().then(resize)
 requestAnimationFrame(now => {
   lastFrame = now
   frame(now)

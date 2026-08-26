@@ -13,6 +13,18 @@
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 	<style>
+		/* The Apple, GitHub, OpenAI and Linux food skins are private-use
+		   codepoints from Nerd Fonts, which almost nobody has installed. This is
+		   the MIT-licensed Symbols-Only font cut down to exactly those four
+		   glyphs: 2.5 MB of icons becomes 1.8 kB, and everyone sees them.
+		   https://github.com/ryanoasis/nerd-fonts */
+		@font-face {
+			font-family: "Snake Symbols";
+			src: url("snake/symbols.woff2") format("woff2");
+			font-display: block;
+			unicode-range: U+F0035, U+F02A4, U+F0868, U+F17C;
+		}
+
 		:root {
 			/* Overwritten by web.js from the selected theme, so the page and the
 			   board always agree. These are the tokyo-night defaults, present so

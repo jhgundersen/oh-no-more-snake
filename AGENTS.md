@@ -190,20 +190,19 @@ Each of these is a deliberate answer to something a browser cannot do. Do not
   the first load follows `prefers-color-scheme`, and `t` cycles.
 - **The shortcut letter is bold only, not recoloured.** The Qt build paints it
   `foreground` on an `accent` button, which disappears on a light theme.
-- **Nerd Font food glyphs are conditional.** The Apple, GitHub, OpenAI and
-  Linux glyphs are private-use codepoints. They join the cycle only when
-  `document.fonts.check` confirms the family is installed; otherwise the cycle
-  is the five fruit, because the alternative is four identical boxes.
-- **Boss tracks sit outside the playlist**, and get their own `<audio>`
-  element. A challenger has to land at full volume while the playlist is still
-  fading out underneath it, which one element cannot do; the two are mixed
-  before the analyser, so Party Mode reacts to whatever is actually audible
-  during the handover. The playlist element is only ever paused, never
-  reloaded, so it holds its own position and there is nothing to remember.
-- **Only `NotAllowedError` means autoplay was refused.** Any other rejection
-  from `play()` — an `AbortError` from a `load()` in the same breath, most
-  often — must not switch Party Mode off. It did, mid-fight, and the boss
-  track carried on playing underneath a game that thought the music was off.
+- **The four logo food skins ship with the page.** Apple, GitHub, Docker and
+  Linux are private-use codepoints that almost nobody has installed, so
+  `public/snake/symbols.woff2` carries them: the MIT-licensed Nerd Fonts
+  *Symbols Only* font subset to exactly four glyphs, 2.5 MB down to 1.8 kB.
+  Regenerate with `pyftsubset SymbolsNerdFont-Regular.ttf
+  --unicodes=U+F0035,U+F02A4,U+F0868,U+F17C --flavor=woff2 --layout-features=''
+  --no-hinting --desubroutinize --name-IDs=''`. A fifth logo means a new subset
+  and a new `unicode-range` on the `@font-face`, which is deliberately narrow so
+  the font is only ever fetched for these codepoints.
+- U+F0868 is `md-docker`, whatever the desktop version's comment says. It draws
+  a whale and always has; the name was wrong, not the glyph.
+- Canvas will draw a glyph whose font has not arrived yet, as a blank. The page
+  waits for the symbol font before its first paint for exactly that reason.
 - **Custom music is dropped, not read from disk.** A page cannot see
   `~/.local/share/omasnake/music`. Dropped files last for the session, because
   object URLs do not survive a reload.

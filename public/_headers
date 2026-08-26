@@ -11,6 +11,12 @@
 /snake/omasnake.svg
   cache-control: public, max-age=604800
 
+# Four glyphs cut out of the Nerd Fonts Symbols set. Its contents are fixed by
+# what the food cycle uses, so a change here means a new file, not a new
+# version of this one.
+/snake/symbols.woff2
+  cache-control: public, max-age=31536000, immutable
+
 # The JavaScript deliberately stays on the default. It is about 60 kB across
 # six unbundled modules, revalidation is a 304, and keeping it unhashed is what
 # lets the game run straight off a static directory with no build step.
