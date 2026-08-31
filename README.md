@@ -65,13 +65,32 @@ dropped into a countdown they were not looking at.
 
 There are two games.
 
-**Race** — a board each, side by side, and the first to reach level 5 takes the
-round. The levels are the single-player game's own, so a race is played on
-boards you already know; five apples clears one. Crashing costs you the level
-rather than the round: you go back to 1.1 while the other lane keeps going,
-which is the whole penalty and the whole tension. The two boards never touch —
-no shared apple, no obstacles sent across, no interference of any kind. On a
-narrow screen the boards stack instead of sitting side by side.
+**Race** — a board each, side by side, and a round is a *set* of levels. Round
+one is 1.1 to 1.5, round two is 2.1 to 2.5, and the round is won by beating the
+boss waiting at the end of it: the duel at the top of every set is the
+finishing line, fought rather than merely arrived at. Crashing costs the set
+rather than the round — you go back to its first level while the other lane
+keeps going, which is the whole penalty and the whole tension. The two boards
+never touch: no shared apple, no obstacles sent across, no interference of any
+kind. On a narrow screen the boards stack instead of sitting side by side.
+
+A lane is not a stripped-down snake game standing in for a run — it *is* a run.
+Each one is a whole `Game`, so a race gets the levels, the layouts, the bosses,
+the snake eater, the ball and Party Mode without a second implementation of any
+of them.
+
+**Party Mode, one player at a time.** Either player can turn it on for their own
+board in the lobby, and a small party hat over that snake's head says which. It
+brings everything it brings to a run: the combo multiplier, Food Frenzy,
+Reverse Venom, Snake Byte, Corner Cutting and the rest. The disco ball still
+works too — it only appears on a board without a party, and taking it starts
+one for that player alone.
+
+Beats are the exception. Only the browser playing the music can hear one, so
+online it is reported to the room rather than measured there, which means Beat
+Eater, Perfect Timing and Dance Floor are taken on trust. A reported beat can
+only ever open a window on the lane of the seat that sent it, which is the most
+it could be trusted with. Party Mode's other scoring needs no music at all.
 
 **Duel** — one board, one apple, and a round is won by outliving the other.
 Both snakes into the same cell nose first is nobody's round, unless one of them

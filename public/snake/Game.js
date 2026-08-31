@@ -1531,6 +1531,141 @@ export class Game {
     this.emit("scoreChanged")
   }
 
+
+  // --- serialisation ---
+  //
+  // The desktop version never needs this: there is one board and it is in the
+  // same process as the thing drawing it. A race is two boards run by a room
+  // and drawn by two browsers, so a whole game has to fit in a message and
+  // come out the other end as something `Draw.js` can paint without knowing it
+  // travelled. Every getter it reads is derived from the fields below, so
+  // restoring them restores the lot.
+  //
+  // Cells go as one number each. They are most of a frame and there are two
+  // boards of them many times a second; a pair of coordinates each would
+  // double the message for nothing.
+
+  cellIndex(cell) {
+    if (!cell) return -1
+    if (cell.x < 0 || cell.y < 0 || cell.x >= COLUMNS || cell.y >= ROWS) return -1
+    return cell.y * COLUMNS + cell.x
+  }
+
+  cellFrom(index) {
+    return index < 0 ? { ...NOWHERE } : point(index % COLUMNS, Math.floor(index / COLUMNS))
+  }
+
+  snapshot() {
+    const cells = list => list.map(cell => this.cellIndex(cell))
+    return {
+      snake: cells(this.snake),
+      direction: [this.direction.x, this.direction.y],
+      turnQueue: this.turnQueue.map(turn => [turn.x, turn.y]),
+      food: this.cellIndex(this.food),
+      discoBall: this.cellIndex(this.discoBall),
+      snakeEater: this.cellIndex(this.snakeEater),
+      reverseVenom: this.cellIndex(this.reverseVenom),
+      frenzyPickup: this.cellIndex(this.frenzyPickup),
+      frenzyFoods: cells(this.frenzyFoods),
+      ball: this.cellIndex(this.ball),
+      ballDirection: [this.ballDirection.x, this.ballDirection.y],
+      ballSpin: Math.round(this.ballSpin * 100) / 100,
+      goal: this.cellIndex(this.goal),
+      boss: cells(this.boss),
+      husks: this.husks.map(husk => ({
+        cells: cells(husk.cells),
+        direction: [husk.direction.x, husk.direction.y],
+        pace: husk.pace
+      })),
+      bossPhase: this.bossPhase,
+      bossStartLength: this.bossStartLength,
+      bossPace: this.bossPace,
+      finishRemainingMs: Math.round(this.finishRemainingMs),
+      fatalityRemainingMs: Math.round(this.fatalityRemainingMs),
+      dizzyMs: Math.round(this.dizzyMs),
+      bossFleeTicks: this.bossFleeTicks,
+      finisherInputs: this.finisherInputs.slice(),
+      fatality: this.fatality,
+      score: this.score,
+      elapsedSeconds: this.elapsedSeconds,
+      foodStyleIndex: this.foodStyleIndex,
+      foodMultiplier: this.foodMultiplier,
+      comboRemainingMs: Math.round(this.comboRemainingMs),
+      pendingGrowth: this.pendingGrowth,
+      beatWindowMs: Math.round(this.beatWindowMs),
+      nearMissWindowMs: Math.round(this.nearMissWindowMs),
+      bonusCooldownMs: Math.round(this.bonusCooldownMs),
+      snakeEaterPhase: this.snakeEaterPhase,
+      snakeEaterRespawnTicks: this.snakeEaterRespawnTicks,
+      reverseVenomRemainingMs: Math.round(this.reverseVenomRemainingMs),
+      frenzyRemainingMs: Math.round(this.frenzyRemainingMs),
+      running: this.running,
+      gameOver: this.gameOver,
+      levelTransition: this.levelTransition,
+      completedLevel: this.completedLevel,
+      displayedLevel: this.displayedLevel,
+      endlessMode: this.endlessMode,
+      wallsWrap: this.wallsWrap,
+      discoBallEnabled: this.discoBallEnabled,
+      partyMode: this.partyMode
+    }
+  }
+
+  applySnapshot(state) {
+    if (!state || !Array.isArray(state.snake)) return
+    const cells = list => list.map(index => this.cellFrom(index))
+    this.snake = cells(state.snake)
+    this.direction = point(state.direction[0], state.direction[1])
+    this.turnQueue = state.turnQueue.map(turn => point(turn[0], turn[1]))
+    this.food = this.cellFrom(state.food)
+    this.discoBall = this.cellFrom(state.discoBall)
+    this.snakeEater = this.cellFrom(state.snakeEater)
+    this.reverseVenom = this.cellFrom(state.reverseVenom)
+    this.frenzyPickup = this.cellFrom(state.frenzyPickup)
+    this.frenzyFoods = cells(state.frenzyFoods)
+    this.ball = this.cellFrom(state.ball)
+    this.ballDirection = point(state.ballDirection[0], state.ballDirection[1])
+    this.ballSpin = state.ballSpin
+    this.goal = this.cellFrom(state.goal)
+    this.boss = cells(state.boss)
+    this.husks = state.husks.map(husk => ({
+      cells: cells(husk.cells),
+      direction: point(husk.direction[0], husk.direction[1]),
+      pace: husk.pace
+    }))
+    this.bossPhase = state.bossPhase
+    this.bossStartLength = state.bossStartLength
+    this.bossPace = state.bossPace
+    this.finishRemainingMs = state.finishRemainingMs
+    this.fatalityRemainingMs = state.fatalityRemainingMs
+    this.dizzyMs = state.dizzyMs
+    this.bossFleeTicks = state.bossFleeTicks
+    this.finisherInputs = state.finisherInputs.slice()
+    this.fatality = state.fatality
+    this.score = state.score
+    this.elapsedSeconds = state.elapsedSeconds
+    this.foodStyleIndex = state.foodStyleIndex
+    this.foodMultiplier = state.foodMultiplier
+    this.comboRemainingMs = state.comboRemainingMs
+    this.pendingGrowth = state.pendingGrowth
+    this.beatWindowMs = state.beatWindowMs
+    this.nearMissWindowMs = state.nearMissWindowMs
+    this.bonusCooldownMs = state.bonusCooldownMs
+    this.snakeEaterPhase = state.snakeEaterPhase
+    this.snakeEaterRespawnTicks = state.snakeEaterRespawnTicks
+    this.reverseVenomRemainingMs = state.reverseVenomRemainingMs
+    this.frenzyRemainingMs = state.frenzyRemainingMs
+    this.running = state.running
+    this.gameOver = state.gameOver
+    this.levelTransition = state.levelTransition
+    this.completedLevel = state.completedLevel
+    this.displayedLevel = state.displayedLevel
+    this.endlessMode = state.endlessMode
+    this.wallsWrap = state.wallsWrap
+    this.discoBallEnabled = state.discoBallEnabled
+    this.partyMode = state.partyMode
+  }
+
   // --- settings ---
 
   loadSettings() {

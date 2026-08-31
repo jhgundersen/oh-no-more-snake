@@ -218,6 +218,9 @@ export class Versus {
     this.apples = 0
     this.roundWinner = null
     this.matchWinner = null
+    // How much of a board step has gone by. It lives on the model so that the
+    // room and the browser drive a match the same way: one `step(ms)` call.
+    this.accumulator = 0
   }
 
   // --- events ---
@@ -387,6 +390,30 @@ export class Versus {
       return
     }
     this.startRound()
+  }
+
+  // How soon this wants to be stepped again.
+  get pace() {
+    return this.phase === PHASE_PLAYING
+      ? Math.max(10, this.tickInterval - this.accumulator)
+      : 100
+  }
+
+  // One call does everything: the phases that pass on their own, and the board
+  // steps due since last time. `Race` presents the same method, so nothing
+  // driving a match has to know which of the two it has.
+  step(ms) {
+    this.advance(ms)
+    if (this.phase !== PHASE_PLAYING) {
+      this.accumulator = 0
+      return
+    }
+    this.accumulator += ms
+    let steps = 0
+    while (this.accumulator >= this.tickInterval && steps++ < 5 && this.phase === PHASE_PLAYING) {
+      this.accumulator -= this.tickInterval
+      this.tick()
+    }
   }
 
   // --- a board step ---

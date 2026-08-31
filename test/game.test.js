@@ -815,3 +815,53 @@ test("a ball is never lethal, whatever it runs into", () => {
   assert.ok(!game.gameOver)
   assert.ok(game.ball.x >= 0, "it is still on the pitch")
 })
+
+// --- serialisation -----------------------------------------------------------
+//
+// A race runs two of these in a room and draws them in two browsers, so a whole
+// game has to survive being turned into a message. Everything `Draw.js` reads
+// is either a field below or derived from one.
+
+test("a whole game survives the trip to another board and back", () => {
+  const game = fresh({ random: () => 0.5 })
+  game.jumpToLevel(5)
+  game.setPartyMode(true)
+  for (let apple = 0; apple < 5; ++apple) {
+    game.food = { x: game.snake[0].x + game.direction.x, y: game.snake[0].y + game.direction.y }
+    game.tick()
+  }
+
+  const copy = fresh({ random: () => 0.5 })
+  copy.applySnapshot(JSON.parse(JSON.stringify(game.snapshot())))
+
+  assert.deepEqual(copy.snapshot(), game.snapshot())
+  assert.deepEqual(copy.snake, game.snake)
+  assert.deepEqual(copy.boss, game.boss)
+  assert.equal(copy.score, game.score)
+  assert.equal(copy.partyMode, true)
+  assert.equal(copy.foodMultiplier, game.foodMultiplier)
+})
+
+test("everything the renderer reads is derived, so restoring the fields restores it", () => {
+  const game = fresh({ random: () => 0.5 })
+  game.jumpToLevel(5)
+  const copy = fresh()
+  copy.applySnapshot(game.snapshot())
+
+  assert.equal(copy.level, game.level)
+  assert.equal(copy.bossLevel, game.bossLevel)
+  assert.equal(copy.bossHealth, game.bossHealth)
+  assert.equal(copy.levelProgress, game.levelProgress)
+  assert.equal(copy.comboProgress, game.comboProgress)
+  assert.deepEqual(copy.obstacles, game.obstacles)
+})
+
+test("a cell off the board travels as nowhere and comes back as nowhere", () => {
+  const game = fresh({ random: () => 0.5 })
+  game.snakeEater = { x: -1, y: -1 }
+  game.ball = { x: -1, y: -1 }
+  const copy = fresh()
+  copy.applySnapshot(game.snapshot())
+  assert.deepEqual(copy.snakeEater, { x: -1, y: -1 })
+  assert.deepEqual(copy.ball, { x: -1, y: -1 })
+})

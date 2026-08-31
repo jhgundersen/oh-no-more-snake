@@ -21,7 +21,7 @@
 
 import { DurableObject } from "cloudflare:workers"
 
-import { PHASE_LOBBY, PHASE_MATCH_OVER, PHASE_PLAYING, Versus, validHead } from "../public/snake/Versus.js"
+import { PHASE_LOBBY, PHASE_MATCH_OVER, Versus, validHead } from "../public/snake/Versus.js"
 import { Race } from "../public/snake/Race.js"
 
 // Enough for the people not playing to watch, and few enough that a room is
@@ -38,6 +38,10 @@ const MAX_CHAT = 200
 // Enough for somebody arriving late to see what they walked in on, and little
 // enough that a room holds no more of anyone's words than it needs to.
 const CHAT_HISTORY = 40
+
+// A board goes out at most this often. Twenty a second is finer than any board
+// step, and a race frame carries two whole games.
+const BROADCAST_MS = 50
 
 const SEATS = 2
 // The first is the default, because a race is the mode most people mean by
@@ -70,7 +74,7 @@ export class VersusRoom extends DurableObject {
     this.chat = []
     this.timer = null
     this.lastAt = 0
-    this.accumulator = 0
+    this.broadcastAt = 0
     this.wrap = true
   }
 
@@ -106,6 +110,9 @@ export class VersusRoom extends DurableObject {
       // Null until its player says otherwise, so the model's own two default
       // faces hold until somebody actually picks one.
       head: null,
+      // Party Mode is one player's choice about their own board, so the room
+      // keeps one of these per seat and never one for the room.
+      party: false,
       ready: false,
       budget: 0,
       second: 0
@@ -166,6 +173,7 @@ export class VersusRoom extends DurableObject {
           here: !!info,
           nick: info?.nick || "",
           head: info?.head,
+          party: !!info?.party,
           ready: !!info?.ready
         }
       })
@@ -178,13 +186,16 @@ export class VersusRoom extends DurableObject {
     return this.mode === "race" ? new Race({ wrap: this.wrap }) : new Versus({ wrap: this.wrap })
   }
 
-  // Faces are remembered by the room, not by the board: a match is thrown away
-  // whenever somebody leaves, and being made to pick a head again because your
-  // opponent's wifi went is not a thing to be made to do.
-  applyHeads() {
+  // Faces and parties are remembered by the room, not by the board: a match is
+  // thrown away whenever somebody leaves, and being made to pick a head again
+  // because your opponent's wifi went is not a thing to be made to do.
+  applySeats() {
     if (!this.match) return
     for (const info of this.sockets.values()) {
-      if (info.seat !== null && info.head !== null) this.match.setHead(info.seat, info.head)
+      if (info.seat === null) continue
+      if (info.head !== null) this.match.setHead(info.seat, info.head)
+      // Only a race has one; a duel is the same game for both of them.
+      this.match.setParty?.(info.seat, info.party)
     }
   }
 
@@ -197,9 +208,8 @@ export class VersusRoom extends DurableObject {
     if (this.match && this.match.phase !== PHASE_LOBBY) return
     this.match = this.makeMatch()
     this.match.startMatch()
-    this.applyHeads()
+    this.applySeats()
     this.lastAt = Date.now()
-    this.accumulator = 0
     this.broadcastState()
     this.schedule()
   }
@@ -297,6 +307,22 @@ export class VersusRoom extends DurableObject {
       return
     }
 
+    if (message.t === "party") {
+      info.party = !!message.on
+      this.match?.setParty?.(info.seat, info.party)
+      this.announceLobby()
+      this.broadcastState()
+      return
+    }
+
+    // A beat can only be heard by the browser playing the music, so it is
+    // reported rather than measured. It opens a window on that seat's lane and
+    // on nothing else, which is the most it could be trusted with anyway.
+    if (message.t === "beat") {
+      this.match?.registerBeat?.(info.seat, Number(message.strength) || 0)
+      return
+    }
+
     if (message.t === "head") {
       info.head = validHead(message.head)
       // Refused while the board is moving, which is the model's rule and not
@@ -330,9 +356,8 @@ export class VersusRoom extends DurableObject {
     if (message.t === "rematch") {
       if (!this.match || this.match.phase !== PHASE_MATCH_OVER) return
       this.match.startMatch()
-      this.applyHeads()
+      this.applySeats()
       this.lastAt = Date.now()
-      this.accumulator = 0
       this.broadcastState()
       this.schedule()
       return
@@ -367,6 +392,7 @@ export class VersusRoom extends DurableObject {
   }
 
   broadcastState() {
+    this.broadcastAt = Date.now()
     this.broadcast(this.match
       ? { t: "state", mode: this.mode, state: this.match.snapshot() }
       : { t: "state", mode: this.mode, state: null })
@@ -387,10 +413,7 @@ export class VersusRoom extends DurableObject {
     if (!this.sockets.size || !this.match) return
     const phase = this.match.phase
     if (phase === PHASE_LOBBY || phase === PHASE_MATCH_OVER) return
-    const wait = phase === PHASE_PLAYING
-      ? Math.max(10, this.match.tickInterval - this.accumulator)
-      : 100
-    this.timer = setTimeout(() => this.loop(), wait)
+    this.timer = setTimeout(() => this.loop(), this.match.pace)
   }
 
   loop() {
@@ -403,17 +426,12 @@ export class VersusRoom extends DurableObject {
     const delta = Math.min(500, Math.max(0, now - this.lastAt))
     this.lastAt = now
 
-    this.match.advance(delta)
-    if (this.match.phase === PHASE_PLAYING) {
-      this.accumulator += delta
-      let steps = 0
-      while (this.accumulator >= this.match.tickInterval && steps++ < 5 && this.match.phase === PHASE_PLAYING) {
-        this.accumulator -= this.match.tickInterval
-        this.match.tick()
-      }
-    } else this.accumulator = 0
+    this.match.step(delta)
 
-    this.broadcastState()
+    // A race is two whole games and its frames are bigger, so the board is
+    // sent on its own cadence rather than once per step. Twenty a second is
+    // finer than any board step it could be carrying.
+    if (now - this.broadcastAt >= BROADCAST_MS) this.broadcastState()
     this.schedule()
   }
 }

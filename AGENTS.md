@@ -218,17 +218,39 @@ third mode should mean adding a model, not editing those two.
   inside `Game.js` and neither must be folded into one. Everything they want,
   the level machinery would have to be taught to ignore; everything the level
   machinery does, they do not want. Small models beat one that is pretending.
-- **A race reuses the levels rather than inventing four.** `obstacleCells` from
-  `Game.js` is what a lane is played on, so a race board is one a player already
-  knows. Reaching level 5 is the finish, which is also why a race never meets a
-  boss — the duel at the top of the set is the finishing line instead.
+- **A race lane is a whole `Game`, not something that resembles one.** That is
+  the entire design of `Race.js`. Everything a race wants — levels, layouts,
+  bosses, the snake eater, the ball, Party Mode and its combos — is already in
+  `Game.js`, tested and ported, and a second implementation of any of it would
+  be a second set of rules to keep in step with the first. A lane does not
+  imitate a single-player run: it is one.
+- **A round is a set, and its last level is a boss fight.** Round one is 1.1 to
+  1.5, round two is 2.1 to 2.5. The round is won by beating the boss, not by
+  arriving at it — `setStartLevel` and `setBossLevel` are the only places that
+  arithmetic lives.
+- **`Game.snapshot()` exists for the race and nothing else.** The desktop
+  version never needs it: there is one board and it is in the process drawing
+  it. Every getter `Draw.js` reads is derived from a field it carries, so
+  restoring the fields restores the lot — a new field that the renderer reads
+  has to be added to it.
 - **The lanes of a race never touch.** No shared apple, no obstacles sent
   across, no interference. The pressure is the number on the other side of the
   screen going up, and that is deliberate: it was asked for as a pure race.
-- **A crash in a race costs the level, not the round.** The lane sits still
-  long enough to be looked at, then goes back to 1.1 while the other one keeps
-  going. A lane that crashed on the round's last step stays crashed, because
-  that is the frame the round ended on.
+- **A crash in a race costs the set, not the round.** The lane sits still long
+  enough to be looked at, then goes back to the first level of the current set
+  while the other one keeps going. A lane whose game is over is a crash however
+  it got there — checking only after a tick misses being eaten by a boss, which
+  happens on the boss's clock rather than the snake's.
+- **Party Mode in a race belongs to one player.** It changes what scores on
+  that board and touches nothing on the other, and the hat over the head is how
+  anyone can tell. Beats are the one part that cannot be measured server-side —
+  only the browser playing the music hears them — so they are reported, and a
+  reported beat may only ever open a window on the lane of the seat that sent
+  it. Nothing else about Party Mode needs a beat.
+- **Both models are driven by one `step(ms)` and one `pace`.** The room and the
+  browser call those and nothing else, which is what lets a race run its two
+  lanes on two different clocks — a lane on 2.3 moves quicker than one on 2.1 —
+  without either driver knowing.
 - **The lobby is built once and updated in place.** Nothing in `renderLobby`
   may replace, hide or disable a node somebody might be typing into. Rebuilding
   it per message is what it did first, and since every keystroke in a name

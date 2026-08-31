@@ -174,6 +174,14 @@ export class Net {
     this.send({ t: "mode", mode })
   }
 
+  setParty(on) {
+    this.send({ t: "party", on })
+  }
+
+  beat(strength) {
+    this.send({ t: "beat", strength })
+  }
+
   setReady(ready) {
     this.send({ t: "ready", ready })
   }

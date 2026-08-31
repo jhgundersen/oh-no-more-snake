@@ -7,9 +7,9 @@
 // Everything here reads state and draws it. Timers, input and animation values
 // belong to web.js; game rules belong to Game.js.
 
-import { COLUMNS, ROWS, levelName } from "./Game.js"
+import { COLUMNS, ROWS, bossNumber, levelName } from "./Game.js"
 import { HEADS } from "./Versus.js"
-import { TARGET_LEVEL } from "./Race.js"
+import { setBossLevel, setStartLevel } from "./Race.js"
 import { spectrumRange } from "./Audio.js"
 import { bossFor, drawPortrait } from "./Bosses.js"
 import { mixColors, parseColor, rgba } from "./Palette.js"
@@ -482,16 +482,21 @@ export function draw(ctx, view) {
 
   // --- overlay ---
 
-  if (game.gameOver || !game.running || game.levelTransition) {
+  // A lane of a race is a whole game on a board of its own, and the words that
+  // belong under a single-player GAME OVER are not the words that belong under
+  // a crash you are about to be put back on the board from. `view.overlay` is
+  // how the caller says so; `false` suppresses it entirely.
+  const overlay = view.overlay
+  if (overlay !== false && (game.gameOver || !game.running || game.levelTransition)) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.667)"
     ctx.fillRect(0, 0, width, height)
-    const title = game.levelTransition
+    const title = overlay?.title ?? (game.levelTransition
       ? `LEVEL ${levelName(game.completedLevel)} CLEARED`
-      : game.gameOver ? "GAME OVER" : "PAUSED"
-    const subtitle = game.levelTransition
+      : game.gameOver ? "GAME OVER" : "PAUSED")
+    const subtitle = overlay?.subtitle ?? (game.levelTransition
       ? `Level ${levelName(game.level)} incoming`
-      : game.gameOver ? "Space to restart" : "Space to resume"
-    const message = game.levelTransition ? view.levelMessage : game.gameOver ? view.gameOverMessage : ""
+      : game.gameOver ? "Space to restart" : "Space to resume")
+    const message = overlay ? "" : game.levelTransition ? view.levelMessage : game.gameOver ? view.gameOverMessage : ""
 
     const lines = message ? wrap(ctx, message, width - 36, 13) : []
     const blockHeight = 24 + 8 + 15 + (lines.length ? 8 + lines.length * 18 : 0)
@@ -1377,6 +1382,7 @@ function drawVersusOverlay(ctx, view, width, height) {
   ctx.globalAlpha = 1
 }
 
+
 // ---------------------------------------------------------------------------
 // Race
 // ---------------------------------------------------------------------------
@@ -1413,12 +1419,81 @@ export function raceLayout(cell, columns, rows, orientation = "side") {
   }
 }
 
+// A lane has no tweens of its own — the bursts and fades belong to a single
+// board being watched closely, and there are two boards here. This is the
+// still version of the same shape, so `draw` needs no idea which it has.
+export function laneEffects() {
+  return {
+    boardContentOpacity: 1,
+    foodPulse: 0,
+    discoPulse: 0,
+    backgroundPulse: 0,
+    foodBurst: 1,
+    burstX: 0,
+    burstY: 0,
+    scoreBurst: 1,
+    scoreBurstText: "",
+    nearMissBurst: 1,
+    nearMissX: 0,
+    nearMissY: 0,
+    nearMissKind: "tailgate",
+    partyBonusText: "",
+    enemyBurst: 1,
+    enemyBurstText: "",
+    enemyBurstX: 0,
+    enemyBurstY: 0,
+    danceWave: () => 0
+  }
+}
+
+// Party Mode is one player's choice about their own board, so the analysis
+// that drives it is too. Only the browser playing the music has any, which is
+// why the far lane gets a silent one: its party is on, and its board simply
+// does not pulse to a beat this machine cannot hear.
+export function laneMusic(party, source) {
+  if (!party) return { enabled: false, bass: 0, mid: 0, treble: 0, leadSpectrum: [] }
+  return {
+    enabled: true,
+    bass: source?.bass || 0,
+    mid: source?.mid || 0,
+    treble: source?.treble || 0,
+    leadSpectrum: source?.leadSpectrum || []
+  }
+}
+
+// A small cone over the head of anybody who turned Party Mode on. It is the
+// only thing on the board that says which of the two is playing which game.
+function drawPartyHat(ctx, { x, y, size, theme }) {
+  const width = size * 0.62
+  const height = size * 0.66
+  const left = x + size / 2 - width / 2
+  const tip = y - height * 0.72
+
+  ctx.beginPath()
+  ctx.moveTo(x + size / 2, tip)
+  ctx.lineTo(left + width, y + size * 0.16)
+  ctx.lineTo(left, y + size * 0.16)
+  ctx.closePath()
+  ctx.fillStyle = theme.accent
+  ctx.fill()
+  ctx.lineWidth = Math.max(1, size * 0.06)
+  ctx.strokeStyle = INK
+  ctx.stroke()
+
+  // The bobble, which is most of what makes a cone a party hat.
+  ctx.beginPath()
+  ctx.arc(x + size / 2, tip, Math.max(1.2, size * 0.11), 0, Math.PI * 2)
+  ctx.fillStyle = theme.foreground
+  ctx.fill()
+}
+
 export function drawRace(ctx, view) {
   const { race, theme, cell, orientation } = view
   const colors = theme.colors
   const layout = raceLayout(cell, race.columns, race.rows, orientation)
-  const radius = Math.max(2, cell * 0.2)
   const seat = view.seat
+  const start = setStartLevel(race.round)
+  const boss = setBossLevel(race.round)
 
   ctx.clearRect(0, 0, layout.width, layout.height)
 
@@ -1426,97 +1501,63 @@ export function drawRace(ctx, view) {
     const spot = layout.lanes[index]
     const top = spot.y + LANE_LABEL
     const skin = versusSkin(theme, index)
+    const game = lane.game
 
     // --- the caption ---
 
-    const name = versusName(index, seat)
-    label(ctx, name, spot.x, spot.y + 12, 12, skin.body, { align: "left" })
-    label(ctx, `LEVEL ${levelName(lane.level)}`, spot.x + layout.boardW, spot.y + 12, 12,
+    label(ctx, versusName(index, seat), spot.x, spot.y + 12, 12, skin.body, { align: "left" })
+    label(ctx, `LEVEL ${levelName(game.displayedLevel)}`, spot.x + layout.boardW, spot.y + 12, 12,
       rgba(colors.foreground, 0.75), { align: "right" })
-
-    // Wins, as pips in the middle of the caption.
     const pips = "●".repeat(lane.wins) + "○".repeat(Math.max(0, race.winsNeeded - lane.wins))
     label(ctx, pips, spot.x + layout.boardW / 2, spot.y + 12, 11, rgba(colors.foreground, 0.6))
 
-    // --- the board ---
-
-    fillRound(ctx, spot.x, top, layout.boardW, layout.boardH, 5, theme.playArea)
-    roundRect(ctx, spot.x + 0.5, top + 0.5, layout.boardW - 1, layout.boardH - 1, 5)
-    ctx.lineWidth = 1
-    // The lane that is winning says so with its own edge.
-    const ahead = race.progressOf(index) > race.progressOf(1 - index)
-    ctx.strokeStyle = ahead ? rgba(colors.accent, 0.75) : rgba(colors.foreground, 0.22)
-    ctx.stroke()
+    // --- the board, drawn by the game's own renderer ---
 
     ctx.save()
-    roundRect(ctx, spot.x, top, layout.boardW, layout.boardH, 5)
-    ctx.clip()
     ctx.translate(spot.x, top)
-
-    for (const wall of race.obstaclesOf(index)) {
-      fillRound(ctx, wall.x * cell + 1, wall.y * cell + 1, cell - 2, cell - 2, 2, theme.muted)
-    }
-
-    if (lane.food.x >= 0) {
-      const food = view.foods[view.foodStyleIndex % view.foods.length]
-      glyph(ctx, food.glyph, lane.food.x, lane.food.y, cell, cell * 0.85, theme.accent, food.family)
-    }
-
-    ctx.globalAlpha = lane.alive ? 1 : 0.42
-    lane.snake.forEach((segment, part) => {
-      const size = skin.round ? cell - 1 : cell - 2
-      const x = segment.x * cell + (cell - size) / 2
-      const y = segment.y * cell + (cell - size) / 2
-      const colour = part === 0 ? skin.head : skin.body
-      if (skin.round) {
-        ctx.beginPath()
-        ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2)
-        ctx.fillStyle = colour
-        ctx.fill()
-      } else fillRound(ctx, x, y, size, size, radius, colour)
-      if (part === 0) {
-        drawHeadFace(ctx, {
-          x, y, size, radius, round: skin.round, direction: lane.direction, head: lane.head
-        })
-      }
+    draw(ctx, {
+      game,
+      music: view.musicFor(index),
+      theme,
+      fx: view.effectsFor(index),
+      cell,
+      foods: view.foods,
+      levelMessage: "",
+      gameOverMessage: "",
+      bossNumber: bossNumber(game.displayedLevel),
+      fatalities: view.fatalities,
+      finisherInputs: game.finisherInputs,
+      fatalityName: game.fatality?.name || "",
+      fatalityFlavour: game.fatality?.flavour || "",
+      fatalityId: game.fatality?.id || "mercy",
+      fatalityProgress: game.fatalityProgress,
+      // A crash here is a setback, not an ending, and should say what it is.
+      overlay: lane.finished
+        ? { title: "BOSS DOWN", subtitle: `level ${levelName(boss)} cleared` }
+        : lane.crashMs > 0
+          ? { title: lane.reason === "eaten" ? "EATEN" : "CRASHED", subtitle: `back to ${levelName(start)}` }
+          : undefined
     })
-    ctx.globalAlpha = 1
 
-    if (!lane.alive && lane.crashAt) {
-      const x = (lane.crashAt.x + 0.5) * cell
-      const y = (lane.crashAt.y + 0.5) * cell
-      const arm = cell * 0.3
-      ctx.beginPath()
-      ctx.moveTo(x - arm, y - arm)
-      ctx.lineTo(x + arm, y + arm)
-      ctx.moveTo(x + arm, y - arm)
-      ctx.lineTo(x - arm, y + arm)
-      ctx.lineWidth = Math.max(2, cell * 0.12)
-      ctx.lineCap = "round"
-      ctx.strokeStyle = "#ff4d4d"
-      ctx.stroke()
+    // The hat goes on after the board, so nothing is drawn over it.
+    if (lane.party && game.snake.length && !game.levelTransition) {
+      const head = game.snake[0]
+      drawPartyHat(ctx, {
+        x: head.x * cell + 1,
+        y: head.y * cell + 1,
+        size: cell - 2,
+        theme
+      })
     }
-
-    // A crashed lane is about to be put back at level one, and should say so
-    // rather than simply appearing there.
-    if (lane.crashMs > 0) {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
-      ctx.fillRect(0, 0, layout.boardW, layout.boardH)
-      label(ctx, "BACK TO 1.1", layout.boardW / 2, layout.boardH / 2 + 5,
-        Math.max(12, Math.min(20, layout.boardW / 14)), "#ff4d4d")
-    }
-
     ctx.restore()
 
-    // --- how far up ---
+    // --- how far through the set ---
 
     const bar = 3
     const y = top + layout.boardH - bar - 2
-    ctx.globalAlpha = 0.9
     fillRound(ctx, spot.x + 3, y, layout.boardW - 6, bar, bar / 2, rgba(colors.foreground, 0.16))
     const width = (layout.boardW - 6) * race.progressOf(index)
     if (width > 0) fillRound(ctx, spot.x + 3, y, width, bar, bar / 2, skin.body)
-    ctx.globalAlpha = 1
   })
 
   if (race.phase !== "playing") drawRaceOverlay(ctx, view, layout)
@@ -1530,12 +1571,12 @@ function drawRaceOverlay(ctx, view, layout) {
 
   if (race.phase === "countdown") {
     title = `ROUND ${race.round}`
-    subtitle = view.hint || ""
+    subtitle = view.hint || `levels ${levelName(setStartLevel(race.round))} to ${levelName(setBossLevel(race.round))}`
   } else if (race.phase === "roundOver") {
     title = race.roundWinner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(race.roundWinner, seat)}`
     subtitle = race.roundWinner === -1
       ? "neither of them got there"
-      : `first to level ${TARGET_LEVEL}`
+      : `${levelName(setBossLevel(race.round))} cleared first`
   } else if (race.phase === "matchOver") {
     title = `MATCH TO ${versusName(race.matchWinner, seat)}`
     subtitle = view.rematchNote || "Space for a rematch"
@@ -1543,7 +1584,7 @@ function drawRaceOverlay(ctx, view, layout) {
 
   const note = `${versusName(0, seat)} ${race.players[0].wins} — ${race.players[1].wins} ${versusName(1, seat)}`
 
-  ctx.fillStyle = "rgba(0, 0, 0, 0.667)"
+  ctx.fillStyle = "rgba(0, 0, 0, 0.72)"
   ctx.fillRect(0, 0, layout.width, layout.height)
 
   const lines = subtitle ? wrap(ctx, subtitle, layout.width - 36, 13) : []

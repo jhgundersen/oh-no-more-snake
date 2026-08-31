@@ -499,6 +499,34 @@
 			gap: 5px;
 		}
 
+		/* Party Mode is per player in a race, which it is nowhere else in this
+		   game, so it gets a control of its own rather than a corner of one. */
+		.seat-party {
+			height: 28px;
+			padding: 0 10px;
+			font-size: 11px;
+			border-radius: 8px;
+			background: transparent;
+			border-color: var(--muted);
+			color: var(--muted);
+		}
+
+		.seat-party:hover:not([disabled]) {
+			background: var(--combo-trough);
+			color: var(--fg);
+		}
+
+		.seat-party[aria-pressed="true"] {
+			background: var(--accent);
+			border-color: var(--button-border);
+			color: var(--bg);
+		}
+
+		.seat-party[disabled] {
+			opacity: 0.55;
+			cursor: default;
+		}
+
 		.lobby-chat {
 			flex: 1 1 auto;
 			min-height: 5em;

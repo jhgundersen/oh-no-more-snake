@@ -14,11 +14,13 @@ import {
   drawSplash,
   drawVersus,
   boardSize,
+  laneEffects,
+  laneMusic,
   raceLayout
 } from "./Draw.js"
 import { Net, newRoomCode, roomLink, validCode } from "./Net.js"
 import { HEADS, PHASE_MATCH_OVER, PHASE_PLAYING, Versus, validHead } from "./Versus.js"
-import { RACE_COLUMNS, RACE_ROWS, Race } from "./Race.js"
+import { RACE_COLUMNS, RACE_ROWS, Race, setBossLevel } from "./Race.js"
 import { FATALITIES, bossFor } from "./Bosses.js"
 import { gameOverMessages, levelMessages, partyComboName, pickDifferent } from "./Messages.js"
 import { Charts, PERIOD_LABELS, describeRun, relativeTime } from "./Scores.js"
@@ -496,6 +498,14 @@ game.on("statusChanged", () => {
 // --- music events ------------------------------------------------------------
 
 music.on("strongBeat", strength => {
+  // In a race the beat belongs to one lane: this browser's own. Online it is
+  // reported to the room, because the room has no ears — which does mean a
+  // beat is taken on trust, and is why it can only ever open a window on the
+  // lane of the seat that sent it.
+  if (twoPlayer()) {
+    reportBeat(strength)
+    return
+  }
   game.registerStrongBeat(strength)
   if (waitingForLevelBeat) startNextLevel()
   fx.recordDanceBeat(strength)
@@ -833,7 +843,6 @@ let matchMode = "race"
 let versusKind = null
 let versusSeat = null
 let net = null
-let versusAccumulator = 0
 // Side by side where there is width for it, stacked where there is not.
 let raceOrientation = "side"
 
@@ -864,6 +873,13 @@ const versusHeads = [0, 1].map(seat => {
   return stored === null ? (seat === 0 ? 0 : 3) : validHead(stored)
 })
 const versusNicks = [0, 1].map(seat => store.getItem(nickKey(seat)) || "")
+const partyKey = seat => `omasnake/versus/party${seat}`
+const versusParty = [0, 1].map(seat => store.getItem(partyKey(seat)) === "true")
+
+// One set of still effects per lane, made once. A race draws two boards with
+// the single-player renderer, and it wants two of everything that renderer
+// reads — but none of the tweens, which belong to one board being watched.
+const laneFx = [laneEffects(), laneEffects()]
 
 function remember(key, value) {
   try {
@@ -905,7 +921,6 @@ function enterTwoPlayer(kind) {
 
   versusKind = kind
   versusSeat = kind === "hotseat" ? null : versusSeat
-  versusAccumulator = 0
   match = null
   inLobby = true
   document.body.classList.add("versus")
@@ -946,6 +961,7 @@ function startHotseat() {
       here: true,
       nick: versusNicks[seat],
       head: versusHeads[seat],
+      party: versusParty[seat],
       ready: false
     }))
   }
@@ -956,7 +972,10 @@ function startHotseat() {
 function startLocalMatch() {
   match = makeMatch()
   match.startMatch()
-  for (const seat of [0, 1]) match.setHead(seat, versusHeads[seat])
+  for (const seat of [0, 1]) {
+    match.setHead(seat, versusHeads[seat])
+    match.setParty?.(seat, versusParty[seat])
+  }
   inLobby = false
   renderLobby()
   resize()
@@ -1000,6 +1019,7 @@ function joinRoom(code) {
       // knowable once it has said.
       if (versusSeat !== null) {
         net.setHead(versusHeads[versusSeat])
+        net.setParty(versusParty[versusSeat])
         if (versusNicks[versusSeat]) net.setNick(versusNicks[versusSeat])
       }
       renderLobby()
@@ -1105,6 +1125,13 @@ function buildLobby() {
     const name = document.createElement("div")
     name.className = "seat-name"
 
+    // Party Mode is per player here, which it has never been anywhere else in
+    // this game: it changes what scores on that board and nothing on the other.
+    const party = document.createElement("button")
+    party.type = "button"
+    party.className = "seat-party"
+    party.addEventListener("click", () => chooseParty(seat, !versusParty[seat]))
+
     const options = document.createElement("div")
     options.className = "heads-options"
     const heads = HEADS.map((style, index) => {
@@ -1121,9 +1148,9 @@ function buildLobby() {
       return { button, canvas }
     })
 
-    card.append(top, input, name, options)
+    card.append(top, input, name, options, party)
     lobbySeats.append(card)
-    seatNodes.push({ card, who, state, input, name, heads })
+    seatNodes.push({ card, who, state, input, name, heads, party })
   }
   paintHeads()
 }
@@ -1158,6 +1185,14 @@ function chooseHead(seat, index) {
 // message per keystroke. The name is kept here at once and told to the room
 // once the typing stops.
 let nickTimer = 0
+function chooseParty(seat, on) {
+  versusParty[seat] = !!on
+  remember(partyKey(seat), versusParty[seat])
+  if (online()) net?.setParty(versusParty[seat])
+  else if (lobbyState?.players?.[seat]) lobbyState.players[seat].party = versusParty[seat]
+  renderLobby()
+}
+
 function chooseNick(seat, value) {
   versusNicks[seat] = value.slice(0, 16)
   remember(nickKey(seat), versusNicks[seat])
@@ -1213,6 +1248,13 @@ function renderLobby() {
       button.setAttribute("aria-pressed", String(chosen === index))
       button.disabled = !mine
     })
+
+    // Only a race has one. A duel is the same game for both of them.
+    const partyOn = mine ? versusParty[seat] : !!player.party
+    nodes.party.hidden = matchMode !== "race"
+    nodes.party.disabled = !mine
+    nodes.party.setAttribute("aria-pressed", String(partyOn))
+    nodes.party.textContent = partyOn ? "🎉 Party Mode on" : "Party Mode off"
   })
 
   const ready = el("lobby-ready")
@@ -1259,6 +1301,17 @@ const VERSUS_SECOND = new Map([
 ])
 
 const touchSeat = () => (online() ? versusSeat : 0)
+
+// One keyboard has one set of speakers, so a hot-seat beat reaches both lanes
+// that asked for a party; online it reaches only this browser's own.
+function reportBeat(strength) {
+  if (!match?.registerBeat) return
+  if (online()) {
+    net?.beat(strength)
+    return
+  }
+  for (const seat of [0, 1]) match.registerBeat(seat, strength)
+}
 
 function steerVersus(seat, dx, dy) {
   if (seat === null || seat === undefined || !match) return
@@ -1332,17 +1385,7 @@ function advanceVersus(delta) {
   // about a board this browser does not own.
   if (online()) return
 
-  match.advance(delta)
-  if (match.phase !== PHASE_PLAYING) {
-    versusAccumulator = 0
-    return
-  }
-  versusAccumulator += delta
-  let steps = 0
-  while (versusAccumulator >= match.tickInterval && match.phase === PHASE_PLAYING && steps++ < 5) {
-    versusAccumulator -= match.tickInterval
-    match.tick()
-  }
+  match.step(delta)
 }
 
 function versusView() {
@@ -1353,9 +1396,18 @@ function versusView() {
     theme,
     cell,
     foods,
+    fatalities: FATALITIES,
     orientation: raceOrientation,
     foodStyleIndex: game.foodStyleIndex,
     seat: isOnline ? versusSeat : null,
+    // A lane draws with the single-player renderer, so it needs the two things
+    // that renderer reads besides the game itself. Only this browser has any
+    // music, and only for the seat it is sitting in: the far lane's party is
+    // on, its board simply does not pulse to a beat this machine cannot hear.
+    effectsFor: seat => laneFx[seat],
+    musicFor: seat => laneMusic(
+      match?.players?.[seat]?.party,
+      isOnline ? (seat === versusSeat ? music : null) : music),
     lobbyNote,
     hint: isOnline
       ? versusSeat === null ? "watching" : "arrows or W A S D"
@@ -1375,6 +1427,7 @@ function updateVersusHud() {
   if (inLobby) middle.textContent = online() ? "LOBBY" : "READY?"
   else if (!match) middle.textContent = "…"
   else if (match.phase === PHASE_MATCH_OVER) middle.textContent = "MATCH OVER"
+  else if (matchMode === "race") middle.textContent = `ROUND ${match.round} — TO ${levelName(setBossLevel(match.round))}`
   else middle.textContent = `ROUND ${match.round}`
 
   for (const seat of [0, 1]) {
@@ -1385,7 +1438,9 @@ function updateVersusHud() {
     // is the number the players are actually watching.
     el(`vs-apples-${seat}`).textContent = !match
       ? ""
-      : matchMode === "race" ? levelName(player.level) : (player.score || "")
+      : matchMode === "race"
+        ? `${levelName(player.game.displayedLevel)}${player.party ? " 🎉" : ""}`
+        : (player.score || "")
   }
 }
 

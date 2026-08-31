@@ -1,375 +1,336 @@
-// The racing model: two boards that never touch, four levels each, and what a
-// crash costs.
+// The racing model: a set of levels each, a boss at the end of every set, and
+// what a crash costs. Each lane is a real `Game`, so most of what happens on a
+// board is `test/game.test.js`'s business — these are the rules a race adds on
+// top of it.
 //
 //   npm test
 
 import test from "node:test"
 import assert from "node:assert/strict"
 
-import { obstacleCells } from "../public/snake/Game.js"
+import { LEVELS_PER_SET, isBossLevel, levelName, obstacleCells, pointsForLevel } from "../public/snake/Game.js"
 import {
-  APPLES_PER_LEVEL,
   COUNTDOWN_MS,
   CRASH_PAUSE_MS,
   DRAW,
+  LEVEL_FADE_MS,
   PHASE_COUNTDOWN,
   PHASE_MATCH_OVER,
   PHASE_PLAYING,
   PHASE_ROUND_OVER,
   ROUND_OVER_MS,
-  RACE_COLUMNS,
-  RACE_ROWS,
   Race,
-  TARGET_LEVEL,
-  findSpawn
+  setBossLevel,
+  setStartLevel
 } from "../public/snake/Race.js"
 
-// A race already past its countdown, with both apples pushed out of the way so
-// a test only has to think about the thing it is testing.
-function arena(options = {}) {
-  const race = new Race({ random: () => 0, ...options })
+// A race already past its countdown. `party` is applied before the countdown
+// runs out, because that is the only time it can be: Party Mode is a lobby
+// choice and the model refuses one mid-race.
+function arena({ party = [false, false], ...options } = {}) {
+  const race = new Race(options)
   race.startMatch()
-  race.advance(COUNTDOWN_MS)
-  for (const lane of race.players) lane.food = { x: -1, y: -1 }
+  party.forEach((on, seat) => { if (on) race.setParty(seat, true) })
+  race.step(COUNTDOWN_MS)
   return race
 }
 
-function place(race, seat, cells, direction) {
-  const lane = race.players[seat]
-  lane.snake = cells.map(([x, y]) => ({ x, y }))
-  lane.direction = { x: direction[0], y: direction[1] }
-  lane.turnQueue = []
+// The room and the browser both drive a race in small slices, so tests do too:
+// a lane's timers only move when it is stepped.
+function pump(race, ms, chunk = 20) {
+  for (let elapsed = 0; elapsed < ms; elapsed += chunk) race.step(chunk)
 }
 
-// Feeds one lane an apple at a time until it has the level it was asked for.
-function feed(race, seat, apples) {
-  for (let i = 0; i < apples; ++i) {
-    const lane = race.players[seat]
-    const head = lane.snake[0]
-    lane.food = { x: head.x + lane.direction.x, y: head.y + lane.direction.y }
-    race.tick()
-  }
-}
+const levelsOf = race => race.players.map(lane => lane.game.displayedLevel)
 
-// --- the boards ---------------------------------------------------------------
+// --- rounds are sets --------------------------------------------------------
 
-test("a race is played on the single-player game's own levels", () => {
-  const race = new Race({ random: () => 0 })
+test("round one is set one, and both lanes start on 1.1", () => {
+  const race = new Race()
   race.startMatch()
-  assert.deepEqual(race.obstaclesOf(0), obstacleCells(1))
-  race.players[0].level = 3
-  assert.deepEqual(race.obstaclesOf(0), obstacleCells(3))
+  assert.equal(race.round, 1)
+  assert.deepEqual(levelsOf(race), [1, 1])
+  assert.equal(levelName(race.players[0].game.displayedLevel), "1.1")
+})
+
+test("round two starts on 2.1", () => {
+  const race = arena()
+  // Winning a round is beating the boss at the end of the set.
+  race.players[0].game.defeatBoss()
+  assert.equal(race.phase, PHASE_ROUND_OVER)
+  assert.equal(race.roundWinner, 0)
+
+  pump(race, ROUND_OVER_MS)
+  assert.equal(race.round, 2)
+  assert.equal(race.phase, PHASE_COUNTDOWN)
+  assert.deepEqual(levelsOf(race), [6, 6])
+  assert.equal(levelName(race.players[0].game.displayedLevel), "2.1")
+  assert.equal(levelName(race.players[1].game.displayedLevel), "2.1")
+})
+
+test("a set is five levels and its last one is the boss", () => {
+  for (let round = 1; round <= 4; ++round) {
+    assert.equal(setBossLevel(round) - setStartLevel(round), LEVELS_PER_SET - 1)
+    assert.ok(isBossLevel(setBossLevel(round)), `${levelName(setBossLevel(round))} should be a boss`)
+    assert.ok(!isBossLevel(setStartLevel(round)))
+  }
+  assert.equal(levelName(setBossLevel(1)), "1.5")
+  assert.equal(levelName(setBossLevel(2)), "2.5")
+})
+
+// --- a lane is a real game ---------------------------------------------------
+
+test("a lane plays the single-player game's own layouts", () => {
+  const race = arena()
+  const lane = race.players[0]
+  race.placeLane(0, 3)
+  assert.deepEqual(lane.game.obstacles, obstacleCells(3))
   assert.ok(obstacleCells(3).length > 0)
 })
 
-// The single-player game has this test because a layout that lands on the
-// spawn is a snake born inside a wall. A race uses the same layouts.
-test("every level a race can reach leaves the snake somewhere to spawn", () => {
-  for (let level = 1; level <= TARGET_LEVEL; ++level) {
-    const obstacles = obstacleCells(level)
-    const start = findSpawn(obstacles, RACE_COLUMNS, RACE_ROWS)
-    for (let k = 0; k < 3; ++k) {
-      const cell = { x: start.x + k, y: start.y }
-      assert.ok(!obstacles.some(wall => wall.x === cell.x && wall.y === cell.y),
-        `level ${level} spawns a snake inside a wall at ${cell.x},${cell.y}`)
-    }
-  }
-})
-
-test("both lanes start level one, three long, on their own board", () => {
-  const race = new Race({ random: () => 0 })
-  race.startMatch()
-  for (const lane of race.players) {
-    assert.equal(lane.level, 1)
-    assert.equal(lane.apples, 0)
-    assert.equal(lane.snake.length, 3)
-    assert.deepEqual(lane.direction, { x: 1, y: 0 })
-  }
-  // Two boards that never touch: each has its own apple.
-  assert.ok(race.players[0].food.x >= 0)
-  assert.ok(race.players[1].food.x >= 0)
-})
-
-// --- climbing ------------------------------------------------------------------
-
-test("five apples clears a level and puts the lane on the next board", () => {
+test("level 1.5 is a boss fight, not a finishing post you walk past", () => {
   const race = arena()
-  feed(race, 0, APPLES_PER_LEVEL)
-
-  const lane = race.players[0]
-  assert.equal(lane.level, 2)
-  // A new level is a fresh board: three long again, apples back to none.
-  assert.equal(lane.apples, 0)
-  assert.equal(lane.snake.length, 3)
-  assert.ok(lane.food.x >= 0)
-  // And the other lane has not moved an inch.
-  assert.equal(race.players[1].level, 1)
+  race.placeLane(0, setBossLevel(1))
+  const game = race.players[0].game
+  assert.equal(game.bossLevel, true)
+  assert.equal(game.bossPhase, "fight")
+  assert.ok(game.boss.length > 1)
+  assert.equal(game.bossHealth, 1)
+  // Arriving there is not winning it.
+  assert.equal(race.phase, PHASE_PLAYING)
+  assert.equal(race.players[0].finished, false)
 })
 
-test("an apple short of the level does not clear it", () => {
+test("beating the boss takes the round; the other lane's progress is irrelevant", () => {
   const race = arena()
-  feed(race, 0, APPLES_PER_LEVEL - 1)
-  assert.equal(race.players[0].level, 1)
-  assert.equal(race.players[0].apples, APPLES_PER_LEVEL - 1)
-  assert.equal(race.players[0].snake.length, 3 + APPLES_PER_LEVEL - 1)
-})
+  race.players[1].game.awardPoints(pointsForLevel(1))   // the other lane is doing fine
+  race.players[0].game.defeatBoss()
 
-test("reaching level five takes the round and stops that lane there", () => {
-  const race = arena()
-  for (let level = 1; level < TARGET_LEVEL; ++level) feed(race, 0, APPLES_PER_LEVEL)
-
-  assert.equal(race.players[0].level, TARGET_LEVEL)
   assert.equal(race.players[0].finished, true)
-  assert.equal(race.phase, PHASE_ROUND_OVER)
   assert.equal(race.roundWinner, 0)
   assert.equal(race.players[0].wins, 1)
   assert.equal(race.players[1].wins, 0)
+  assert.equal(race.phase, PHASE_ROUND_OVER)
 })
 
-test("the lanes never touch: one lane's apple is not the other's", () => {
+test("clearing a level moves the lane to the next one, once the fade has passed", () => {
   const race = arena()
-  place(race, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
-  place(race, 1, [[5, 5], [4, 5], [3, 5]], [1, 0])
-  race.players[0].food = { x: 6, y: 5 }
-  race.players[1].food = { x: 9, y: 9 }
-  race.tick()
+  const lane = race.players[0]
+  lane.game.awardPoints(pointsForLevel(1))
 
-  assert.equal(race.players[0].apples, 1)
-  assert.equal(race.players[1].apples, 0)
-  // Two snakes on the same coordinates, on two boards, and neither notices.
-  assert.deepEqual(race.players[1].snake[0], { x: 6, y: 5 })
-  assert.equal(race.phase, PHASE_PLAYING)
+  // The race hears `levelCompleted` as it happens and starts the fade there.
+  assert.equal(lane.game.levelTransition, true)
+  assert.ok(lane.transitionMs > 0)
+  assert.equal(lane.game.displayedLevel, 1)
+
+  pump(race, LEVEL_FADE_MS)
+  assert.equal(lane.game.displayedLevel, 2)
+  assert.equal(lane.game.levelTransition, false)
+  assert.equal(lane.game.snake.length, 3)
 })
 
-// --- crashing ------------------------------------------------------------------
+// --- crashing ----------------------------------------------------------------
 
-test("a crash costs the level, not the round", () => {
-  const race = arena({ wrap: false })
-  feed(race, 0, APPLES_PER_LEVEL)
-  assert.equal(race.players[0].level, 2)
+test("a crash costs the set, not the round, and goes back to the set's first level", () => {
+  const race = arena()
+  race.players[0].game.defeatBoss()
+  pump(race, ROUND_OVER_MS + COUNTDOWN_MS)
+  assert.equal(race.round, 2)
 
   const lane = race.players[0]
-  place(race, 0, [[RACE_COLUMNS - 1, 5], [RACE_COLUMNS - 2, 5], [RACE_COLUMNS - 3, 5]], [1, 0])
-  race.tick()
+  race.placeLane(0, 8)                     // 2.3, partway up the set
+  assert.equal(levelName(lane.game.displayedLevel), "2.3")
+  lane.game.finish()
+  race.step(20)
 
-  // Left where it crashed, and the round is still going.
-  assert.equal(race.phase, PHASE_PLAYING)
-  assert.equal(lane.alive, false)
-  assert.equal(lane.reason, "wall")
+  assert.equal(lane.crashMs > 0, true)
   assert.equal(lane.crashes, 1)
-  assert.equal(lane.level, 2)
+  assert.equal(race.phase, PHASE_PLAYING, "a crash does not end the round")
 
-  // Then it goes back to the beginning.
-  race.advance(CRASH_PAUSE_MS)
-  assert.equal(lane.level, 1)
-  assert.equal(lane.apples, 0)
-  assert.equal(lane.alive, true)
-  assert.equal(lane.snake.length, 3)
-  assert.equal(race.phase, PHASE_PLAYING)
+  pump(race, CRASH_PAUSE_MS)
+  assert.equal(levelName(lane.game.displayedLevel), "2.1", "back to the start of the set, not to 1.1")
+  assert.equal(lane.game.gameOver, false)
+  assert.equal(lane.game.snake.length, 3)
 })
 
 test("a crashed lane holds still while the other one keeps racing", () => {
-  const race = arena({ wrap: false })
-  place(race, 0, [[RACE_COLUMNS - 1, 5], [RACE_COLUMNS - 2, 5], [RACE_COLUMNS - 3, 5]], [1, 0])
-  race.tick()
-  assert.equal(race.players[0].crashMs, CRASH_PAUSE_MS)
-
-  const stuck = race.players[0].snake.map(cell => ({ ...cell }))
-  const moving = race.players[1].snake[0].x
-  race.tick()
-  race.tick()
-
-  assert.deepEqual(race.players[0].snake, stuck)
-  assert.notEqual(race.players[1].snake[0].x, moving)
-})
-
-test("running into your own body is a crash too", () => {
   const race = arena()
-  place(race, 0, [[5, 5], [6, 5], [6, 6], [5, 6], [4, 6]], [0, 1])
-  race.tick()
-  assert.equal(race.players[0].reason, "self")
-  assert.equal(race.players[0].alive, false)
+  race.players[0].game.finish()
+  race.step(20)
+
+  const stuck = race.players[0].game.snake.map(cell => ({ ...cell }))
+  const moving = race.players[1].game.snake[0].x
+  pump(race, 400)
+
+  assert.deepEqual(race.players[0].game.snake, stuck)
+  assert.notEqual(race.players[1].game.snake[0].x, moving)
 })
 
-test("a wall on the level is as fatal as the edge", () => {
-  const race = arena({ wrap: false })
-  race.players[0].level = 2
-  const wall = obstacleCells(2)[0]
-  place(race, 0, [[wall.x - 1, wall.y], [wall.x - 2, wall.y], [wall.x - 3, wall.y]], [1, 0])
-  race.tick()
-  assert.equal(race.players[0].reason, "wall")
-})
-
-test("a wrapping border carries a lane round instead of ending it", () => {
-  const race = arena({ wrap: true })
-  place(race, 0, [[RACE_COLUMNS - 1, 5], [RACE_COLUMNS - 2, 5], [RACE_COLUMNS - 3, 5]], [1, 0])
-  race.tick()
-  assert.equal(race.players[0].alive, true)
-  assert.deepEqual(race.players[0].snake[0], { x: 0, y: 5 })
-})
-
-test("a lane that crashes on the last step of a round stays crashed", () => {
-  const race = arena({ wrap: false })
-  place(race, 0, [[RACE_COLUMNS - 1, 5], [RACE_COLUMNS - 2, 5], [RACE_COLUMNS - 3, 5]], [1, 0])
-  race.tick()
-  // The other lane finishes while the first is still sitting in its crash.
-  race.players[1].level = TARGET_LEVEL - 1
-  race.players[1].apples = APPLES_PER_LEVEL - 1
-  const lane = race.players[1]
-  lane.food = { x: lane.snake[0].x + lane.direction.x, y: lane.snake[0].y + lane.direction.y }
-  race.tick()
-
-  assert.equal(race.phase, PHASE_ROUND_OVER)
-  assert.equal(race.roundWinner, 1)
-  race.advance(100)
-  assert.equal(race.players[0].alive, false, "the crash should still be on screen")
-  assert.equal(race.players[0].level, 2 - 1)
-})
-
-// --- rounds and the match --------------------------------------------------------
-
-test("the round over screen passes and the next round starts both lanes over", () => {
+test("being eaten by a boss says so, and is still only a setback", () => {
   const race = arena()
-  for (let level = 1; level < TARGET_LEVEL; ++level) feed(race, 0, APPLES_PER_LEVEL)
-  assert.equal(race.round, 1)
+  race.placeLane(0, setBossLevel(1))
+  const lane = race.players[0]
+  assert.equal(lane.game.bossPhase, "fight")
+  lane.game.finish()
+  race.step(20)
 
-  race.advance(ROUND_OVER_MS)
+  assert.equal(lane.reason, "eaten")
+  assert.equal(race.phase, PHASE_PLAYING)
+  pump(race, CRASH_PAUSE_MS)
+  assert.equal(levelName(lane.game.displayedLevel), "1.1")
+})
+
+// --- party mode, one player at a time ------------------------------------------
+
+test("party mode is one lane's business and never the other's", () => {
+  const race = new Race()
+  race.startMatch()
+  assert.equal(race.setParty(0, true), true)
+
+  assert.equal(race.players[0].game.partyMode, true)
+  assert.equal(race.players[1].game.partyMode, false)
+  assert.equal(race.players[0].party, true)
+  assert.equal(race.players[1].party, false)
+})
+
+test("a lane keeps its party across rounds", () => {
+  const race = arena({ party: [false, true] })
+  race.players[0].game.defeatBoss()
+  pump(race, ROUND_OVER_MS)
+
   assert.equal(race.round, 2)
-  assert.equal(race.phase, PHASE_COUNTDOWN)
-  for (const lane of race.players) {
-    assert.equal(lane.level, 1)
-    assert.equal(lane.apples, 0)
-    assert.equal(lane.finished, false)
-    assert.equal(lane.snake.length, 3)
-  }
-  assert.equal(race.players[0].wins, 1)
+  assert.equal(race.players[1].party, true)
+  assert.equal(race.players[1].game.partyMode, true)
+  assert.equal(race.players[0].game.partyMode, false)
 })
+
+test("a party lane builds a combo and a plain one does not", () => {
+  const race = arena({ party: [true, false] })
+
+  for (const seat of [0, 1]) {
+    const game = race.players[seat].game
+    for (let apple = 0; apple < 3; ++apple) {
+      game.food = { x: game.snake[0].x + game.direction.x, y: game.snake[0].y + game.direction.y }
+      game.tick()
+    }
+  }
+
+  assert.ok(race.players[0].game.foodMultiplier > 1, "the party lane should be combo-ing")
+  assert.equal(race.players[1].game.foodMultiplier, 1)
+  assert.ok(race.players[0].game.score > race.players[1].game.score,
+    "a multiplier is worth more points for the same apples")
+})
+
+test("a beat only ever reaches the lane that reported it, and only with party on", () => {
+  const race = arena({ party: [true, false] })
+
+  assert.equal(race.registerBeat(1, 1), false, "no party, no beat")
+  assert.equal(race.registerBeat(0, 1), true)
+  assert.ok(race.players[0].game.beatWindowMs > 0)
+  assert.equal(race.players[1].game.beatWindowMs, 0)
+})
+
+test("the disco ball is still the offer of a party, for whoever ate it", () => {
+  const race = arena()
+  assert.equal(race.players[1].party, false)
+  race.players[1].game.emit("discoBallEaten", 3, 3)
+
+  assert.equal(race.players[1].party, true)
+  assert.equal(race.players[1].game.partyMode, true)
+  assert.equal(race.players[0].party, false)
+})
+
+test("a face and a party are picked before a race and not during one", () => {
+  const race = new Race()
+  race.startMatch()
+  assert.equal(race.setHead(0, 2), true)
+  assert.equal(race.setParty(0, true), true)
+
+  race.step(COUNTDOWN_MS)
+  assert.equal(race.phase, PHASE_PLAYING)
+  assert.equal(race.setHead(0, 5), false)
+  assert.equal(race.setParty(0, false), false)
+  assert.equal(race.players[0].head, 2)
+  assert.equal(race.players[0].party, true)
+})
+
+// --- the match ------------------------------------------------------------------
 
 test("the match ends when someone has taken enough rounds", () => {
   const race = arena({ winsNeeded: 2 })
   race.players[0].wins = 1
-  for (let level = 1; level < TARGET_LEVEL; ++level) feed(race, 0, APPLES_PER_LEVEL)
+  race.players[0].game.defeatBoss()
   assert.equal(race.players[0].wins, 2)
 
-  race.advance(ROUND_OVER_MS)
+  pump(race, ROUND_OVER_MS)
   assert.equal(race.phase, PHASE_MATCH_OVER)
   assert.equal(race.matchWinner, 0)
-  race.advance(10000)
+  pump(race, 10000)
   assert.equal(race.phase, PHASE_MATCH_OVER)
 })
 
 test("a race nobody is trying to win is eventually a draw", () => {
-  const race = arena({ wrap: true })
-  for (let step = 0; step < 3000 && race.phase === PHASE_PLAYING; ++step) race.tick()
+  const race = arena()
+  pump(race, 5 * 60 * 1000 + 1000, 500)
   assert.equal(race.phase, PHASE_ROUND_OVER)
   assert.equal(race.roundWinner, DRAW)
-  assert.equal(race.players[0].wins, 0)
-  assert.equal(race.players[1].wins, 0)
+  assert.deepEqual(race.players.map(lane => lane.wins), [0, 0])
 })
 
-test("nothing moves until the countdown has run out", () => {
-  const race = new Race({ random: () => 0 })
-  race.startMatch()
-  assert.equal(race.phase, PHASE_COUNTDOWN)
-  const before = race.players[0].snake.map(cell => ({ ...cell }))
-  race.tick()
-  assert.deepEqual(race.players[0].snake, before)
-  race.advance(COUNTDOWN_MS)
-  race.tick()
-  assert.notDeepEqual(race.players[0].snake, before)
-})
-
-// --- pace ------------------------------------------------------------------------
-
-test("the pace follows whichever lane is further ahead, and stops at a floor", () => {
+test("the pace follows whichever lane is next due", () => {
   const race = arena()
-  const opening = race.tickInterval
-  race.players[1].level = 3
-  assert.ok(race.tickInterval < opening)
-  race.players[1].level = 40
-  assert.ok(race.tickInterval >= 85)
+  assert.ok(race.pace > 0 && race.pace <= 100)
+  race.players[0].game.finish()
+  race.players[1].game.finish()
+  race.step(20)
+  // Both sitting in a crash: nothing is due, so it waits.
+  assert.equal(race.pace, 100)
 })
 
-test("progress counts levels far more heavily than apples", () => {
+// --- nothing a race does may reach a best score -----------------------------------
+
+test("a lane is a practice run on storage of its own", () => {
   const race = arena()
-  assert.equal(race.progressOf(0), 0)
-  race.players[0].apples = APPLES_PER_LEVEL
-  const oneLevelOfApples = race.progressOf(0)
-  race.players[0].apples = 0
-  race.players[0].level = 2
-  assert.equal(race.progressOf(0), oneLevelOfApples)
-  race.players[0].level = TARGET_LEVEL
-  assert.equal(race.progressOf(0), 1)
-})
+  const lane = race.players[0]
+  assert.equal(lane.game.practiceRun, true)
 
-// --- steering and faces ------------------------------------------------------------
-
-test("a lane cannot be turned back into itself, and queues two turns", () => {
-  const race = arena()
-  assert.equal(race.turn(0, -1, 0), false)
-  assert.equal(race.turn(0, 0, 1), true)
-  assert.equal(race.turn(0, -1, 0), true)
-  assert.equal(race.turn(0, 0, -1), false)
-})
-
-test("a crashed lane cannot be steered", () => {
-  const race = arena({ wrap: false })
-  place(race, 0, [[RACE_COLUMNS - 1, 5], [RACE_COLUMNS - 2, 5], [RACE_COLUMNS - 3, 5]], [1, 0])
-  race.tick()
-  assert.equal(race.turn(0, 0, 1), false)
-  assert.equal(race.turn(1, 0, 1), true)
-})
-
-test("a face is picked before a race and not during one", () => {
-  const race = new Race({ random: () => 0 })
-  race.startMatch()
-  assert.equal(race.setHead(1, 2), true)
-  assert.equal(race.players[1].head, 2)
-  race.advance(COUNTDOWN_MS)
-  assert.equal(race.setHead(1, 5), false)
-  assert.equal(race.players[1].head, 2)
+  lane.game.score = 500
+  lane.game.finish()
+  assert.equal(lane.game.bestLevels, 0, "a practice run never sets a best score")
+  // And whatever it did save went to the lane's own store, not the player's.
+  assert.notEqual(lane.game.store, globalThis.localStorage)
 })
 
 // --- the wire ----------------------------------------------------------------------
 
-test("a snapshot survives the trip to another board and back", () => {
-  const race = arena()
-  // Straight onto the lane: the setter refuses once a race is running, which
-  // is its own test above. This one is about the wire.
+test("a snapshot carries two whole games there and back", () => {
+  const race = arena({ party: [true, false] })
   race.players[0].head = 4
-  feed(race, 0, APPLES_PER_LEVEL + 1)
+  race.placeLane(0, setBossLevel(1))
   race.players[1].wins = 2
+  race.players[1].game.awardPoints(3)
 
   const watcher = new Race()
   watcher.applySnapshot(JSON.parse(JSON.stringify(race.snapshot())))
 
   assert.deepEqual(watcher.snapshot(), race.snapshot())
-  assert.equal(watcher.players[0].level, 2)
   assert.equal(watcher.players[0].head, 4)
+  assert.equal(watcher.players[0].party, true)
   assert.equal(watcher.players[1].wins, 2)
-  assert.deepEqual(watcher.players[0].snake, race.players[0].snake)
-  assert.deepEqual(watcher.players[0].food, race.players[0].food)
+  // The boss and everything derived from it survives, which is what lets the
+  // far browser draw a fight it is not running.
+  assert.equal(watcher.players[0].game.bossLevel, true)
+  assert.equal(watcher.players[0].game.boss.length, race.players[0].game.boss.length)
+  assert.equal(watcher.players[0].game.bossHealth, race.players[0].game.bossHealth)
+  assert.deepEqual(watcher.players[0].game.obstacles, race.players[0].game.obstacles)
+  assert.equal(watcher.players[1].game.score, race.players[1].game.score)
 })
 
-// The layouts are the one thing not sent: a lane's walls are its level's walls,
-// which both ends can work out from the one number.
-test("the walls are not on the wire and are derived from the level", () => {
+test("progress counts levels through the set", () => {
   const race = arena()
-  race.players[0].level = 4
-  const state = race.snapshot()
-  assert.equal(JSON.stringify(state).includes("obstacles"), false)
-
-  const watcher = new Race()
-  watcher.applySnapshot(state)
-  assert.deepEqual(watcher.obstaclesOf(0), obstacleCells(4))
-  assert.ok(watcher.obstaclesOf(0).length > 0)
-})
-
-test("a crash cell past the far wall does not come back as a real cell", () => {
-  const race = arena({ wrap: false })
-  place(race, 0, [[RACE_COLUMNS - 1, 5], [RACE_COLUMNS - 2, 5], [RACE_COLUMNS - 3, 5]], [1, 0])
-  race.tick()
-  const watcher = new Race()
-  watcher.applySnapshot(race.snapshot())
-  assert.equal(watcher.players[0].crashAt, null)
+  assert.equal(race.progressOf(0), 0)
+  race.placeLane(0, setStartLevel(1) + 2)
+  assert.ok(race.progressOf(0) >= 0.4 && race.progressOf(0) < 0.7)
+  race.players[0].finished = true
+  assert.equal(race.progressOf(0), 1)
 })
