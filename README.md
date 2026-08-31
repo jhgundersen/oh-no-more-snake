@@ -97,7 +97,10 @@ Both snakes into the same cell nose first is nobody's round, unless one of them
 had eaten more that round, in which case it is theirs. Every apple eaten speeds
 the board up for both of them.
 
-Either way it is first to three rounds.
+Either way the match runs to however many rounds the lobby was set to, and ends
+on a podium: the winner up on the tallest box wearing a crown, everybody else
+on a smaller one looking about as pleased as you would expect. The line across
+the top is drawn from a pool, so it is rarely the same twice.
 
 The two snakes are told apart by shape as well as colour: the first is square
 and the second is round. Half the palettes make the accent and the foreground

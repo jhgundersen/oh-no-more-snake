@@ -241,12 +241,24 @@ third mode should mean adding a model, not editing those two.
   while the other one keeps going. A lane whose game is over is a crash however
   it got there — checking only after a tick misses being eaten by a boss, which
   happens on the boss's clock rather than the snake's.
-- **Party Mode starts the music.** It has meant music since the desktop
-  version, and a party with nothing playing is most of the point missing. The
-  click that asks for it is also the gesture playback needs, which is the one
-  moment it can be started from. A combo nobody can see is a combo nobody plays
-  for: a run shows it in the meters, and a race shows it in the lane's caption,
-  because the meters belong to one board and there may be four.
+- **A lane's board has to move to the beat.** The single-player game animates
+  the flash, the food throb and the wave down the snake with tweens fired by
+  the analysis, which a lane cannot use: there may be four boards and only one
+  of them is being listened to. What every lane does have is `beatWindowMs`,
+  opened by its own player's music and sent on by the room — so a window that
+  has just opened is a beat that has just landed, wherever it landed. A lane
+  given a dead `danceWave` and static pulses draws a board in a party that is
+  not moving, which is what shipped first.
+- **How a board looks and sounds is the browser's, whoever is stepping it.**
+  The beat, the bursts and the boss music all read state the room has already
+  sent, so none of them may sit behind the early return that skips stepping a
+  board this browser does not own.
+- **The podium is the end of a match.** Ranked on wins, then on whatever the
+  mode counts, then on seat so two players who did equally well are still put
+  in a fixed order. The winner smiles and the rest do not, which is a mouth
+  drawn over the face they chose rather than a face of its own — losing should
+  not cost somebody the head they picked. Its line is chosen once when the
+  match ends, not per frame, or the joke changes while it is being read.
 - **Party Mode starts the music.** It has meant music since the desktop
   version, and a party with nothing playing is most of the point missing. The
   click that asks for it is also the gesture playback needs, which is the one

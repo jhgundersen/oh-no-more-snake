@@ -50,7 +50,7 @@ const ANGRY = "#ff4d4d"
 //
 // `angry` is the boss's face and stays a flag of its own rather than becoming
 // head number three: a boss is not picking a look, it has one.
-function drawFace(ctx, { x, y, size, direction, angry, head = 0 }) {
+function drawFace(ctx, { x, y, size, direction, angry, head = 0, mouth = null }) {
   const forward = direction && (direction.x || direction.y) ? direction : { x: 1, y: 0 }
   // Across the direction of travel, so the pair always sits side by side and
   // the head reads as a head whichever way it is going.
@@ -71,6 +71,21 @@ function drawFace(ctx, { x, y, size, direction, angry, head = 0 }) {
   })
   const spin = Math.atan2(forward.y, forward.x)
   const kind = angry ? "fierce" : (HEADS[head] || HEADS[0]).id
+
+  // A mouth is only ever drawn on a podium, where how a snake feels about the
+  // result is the whole point and the face it chose should survive saying so.
+  if (mouth) {
+    const from = at(dot * 1.6, -spread * 0.9)
+    const to = at(dot * 1.6, spread * 0.9)
+    const pull = at(dot * (mouth === "smile" ? 3.1 : 0.2), 0)
+    ctx.beginPath()
+    ctx.moveTo(from.x, from.y)
+    ctx.quadraticCurveTo(pull.x, pull.y, to.x, to.y)
+    ctx.strokeStyle = INK
+    ctx.lineWidth = Math.max(1.2, size * 0.08)
+    ctx.lineCap = "round"
+    ctx.stroke()
+  }
 
   if (kind === "visor") {
     // One band across the face, with a bright slit in it. The only head with
@@ -1373,6 +1388,12 @@ function drawVersusOverlay(ctx, view, width, height) {
   const { versus, theme } = view
   const seat = view.seat
 
+  // A finished match gets a podium rather than a line of text.
+  if (versus.phase === "matchOver") {
+    drawPodium(ctx, { ...view, ranked: rankPlayers(versus.seated, "duel") }, width, height)
+    return
+  }
+
   ctx.fillStyle = "rgba(0, 0, 0, 0.667)"
   ctx.fillRect(0, 0, width, height)
 
@@ -1393,9 +1414,6 @@ function drawVersusOverlay(ctx, view, width, height) {
     // changing under it.
     title = winner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(winner, seat, view.names)}`
     subtitle = crashLine(versus, seat, view)
-  } else if (versus.phase === "matchOver") {
-    title = `MATCH TO ${versusName(versus.matchWinner, seat, view.names)}`
-    subtitle = view.rematchNote || "Space for a rematch"
   }
 
   // The tally, spelled out rather than left to the strip above the board:
@@ -1432,6 +1450,169 @@ function drawVersusOverlay(ctx, view, width, height) {
   ctx.globalAlpha = 1
 }
 
+
+// ---------------------------------------------------------------------------
+// The podium
+// ---------------------------------------------------------------------------
+
+// Where each rank stands, left to right: the runner-up, then the winner, then
+// the rest. It is the arrangement every podium uses and the only one where the
+// tallest block is not at one end.
+const PODIUM_ORDER = [[0], [1, 0], [1, 0, 2], [1, 0, 2, 3]]
+const PODIUM_HEIGHT = [1, 0.66, 0.5, 0.38]
+
+// As much of a word as fits, and an ellipsis where the rest was.
+function ellipsise(ctx, text, maxWidth, size) {
+  ctx.font = `bold ${size}px ui-monospace, "JetBrains Mono", monospace`
+  if (ctx.measureText(text).width <= maxWidth) return text
+  let cut = text
+  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) cut = cut.slice(0, -1)
+  return `${cut}…`
+}
+
+// Confetti, which is a fixed pattern rather than a simulation: it has to look
+// the same to everybody watching the same match, and nobody is going to study
+// it. `t` runs from 0 upwards and the pieces fall on their own schedules.
+function drawConfetti(ctx, { width, height, t, theme }) {
+  const colours = [theme.accent, theme.foreground, theme.muted]
+  for (let i = 0; i < 34; ++i) {
+    const drift = ((i * 37) % 100) / 100
+    const speed = 0.35 + ((i * 17) % 60) / 100
+    const fall = ((t * speed + drift) % 1.25) - 0.15
+    if (fall < 0) continue
+    const x = ((i * 61) % 100) / 100 * width + Math.sin((t + i) * 1.6) * width * 0.02
+    const y = fall * height
+    const size = 3 + (i % 3)
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate((t * 2 + i) % (Math.PI * 2))
+    ctx.globalAlpha = 0.85
+    ctx.fillStyle = colours[i % colours.length]
+    ctx.fillRect(-size / 2, -size / 4, size, size / 2)
+    ctx.restore()
+  }
+  ctx.globalAlpha = 1
+}
+
+// The end of a match: whoever won it standing on a box, and everybody else
+// standing on a smaller one being unhappy about it.
+// Who came where. Wins first, then whatever the mode counts, then the seat so
+// two players who did exactly as well are still put in a fixed order.
+export function rankPlayers(players, mode) {
+  const score = player => (mode === "race"
+    ? player.game?.score || 0
+    : player.total || 0)
+  return [...players].sort((a, b) =>
+    (b.wins - a.wins) || (score(b) - score(a)) || (a.seat - b.seat))
+}
+
+export function drawPodium(ctx, view, width, height) {
+  const { theme, ranked, seat, names, message } = view
+  const colors = theme.colors
+  const t = performance.now() / 1000
+
+  // Nearly opaque: the boards underneath are finished with, and a lane caption
+  // showing through lands right where the winner is standing.
+  ctx.fillStyle = "rgba(0, 0, 0, 0.92)"
+  ctx.fillRect(0, 0, width, height)
+  drawConfetti(ctx, { width, height, t, theme })
+
+  const order = PODIUM_ORDER[Math.min(ranked.length, 4) - 1] || [0]
+  const lanes = order.map(rank => ranked[rank]).filter(Boolean)
+  if (!lanes.length) return
+
+  // The whole scene is sized off the shorter dimension, so it holds together
+  // on one wide board and on four stacked ones.
+  // Room under the boxes for a name, a tally and the line about a rematch.
+  const floor = Math.min(height * 0.74, height - 66)
+  const tallest = Math.min(height * 0.34, 108)
+  const boxWidth = Math.min(width / (lanes.length + 1), 96)
+  const gap = boxWidth * 0.16
+  const spread = lanes.length * boxWidth + (lanes.length - 1) * gap
+  let x = width / 2 - spread / 2
+
+  // Wrapped, because a stack of four boards is a narrow canvas and a joke
+  // running off the side of it is not one.
+  const lines = wrap(ctx, message || "MATCH OVER", width - 28, 14)
+  let messageY = Math.max(20, height * 0.1)
+  for (const line of lines) {
+    label(ctx, line, width / 2, messageY, 14, "white", { bold: false })
+    messageY += 19
+  }
+
+  for (const entry of lanes) {
+    const rank = ranked.indexOf(entry)
+    const boxHeight = Math.max(16, tallest * PODIUM_HEIGHT[Math.min(rank, 3)])
+    const top = floor - boxHeight
+    const winner = rank === 0
+    const skin = versusSkin(theme, entry.seat)
+
+    // The box.
+    fillRound(ctx, x, top, boxWidth, boxHeight, 4,
+      rgba(winner ? colors.accent : colors.muted, winner ? 0.9 : 0.55))
+    label(ctx, String(rank + 1), x + boxWidth / 2, top + boxHeight / 2 + 6,
+      Math.min(22, boxHeight * 0.5), winner ? theme.background : "white")
+
+    // The snake, standing on it. A head is all there is room for, and a head
+    // is all anybody needs to see whose it is.
+    const size = Math.min(boxWidth * 0.62, 46)
+    const hx = x + boxWidth / 2 - size / 2
+    const hy = top - size - 6 - (winner ? Math.abs(Math.sin(t * 3)) * 5 : 0)
+    if (skin.round) {
+      ctx.beginPath()
+      ctx.arc(hx + size / 2, hy + size / 2, size / 2, 0, Math.PI * 2)
+      ctx.fillStyle = skin.head
+      ctx.fill()
+    } else fillRound(ctx, hx, hy, size, size, Math.max(2, size * 0.2), skin.head)
+
+    ctx.save()
+    if (skin.round) {
+      ctx.beginPath()
+      ctx.arc(hx + size / 2, hy + size / 2, size / 2, 0, Math.PI * 2)
+    } else roundRect(ctx, hx, hy, size, size, Math.max(2, size * 0.2))
+    ctx.clip()
+    drawFace(ctx, {
+      x: hx, y: hy, size,
+      direction: { x: 0, y: 1 },
+      angry: false,
+      head: entry.head,
+      mouth: winner ? "smile" : "frown"
+    })
+    ctx.restore()
+
+    // The winner gets something on its head; nobody else does.
+    if (winner) {
+      ctx.beginPath()
+      const cw = size * 0.62
+      const cx = hx + size / 2 - cw / 2
+      const cy = hy - size * 0.16
+      ctx.moveTo(cx, cy)
+      ctx.lineTo(cx + cw * 0.18, cy - size * 0.28)
+      ctx.lineTo(cx + cw * 0.5, cy - size * 0.08)
+      ctx.lineTo(cx + cw * 0.82, cy - size * 0.28)
+      ctx.lineTo(cx + cw, cy)
+      ctx.closePath()
+      ctx.fillStyle = theme.accent
+      ctx.fill()
+      ctx.lineWidth = Math.max(1, size * 0.045)
+      ctx.strokeStyle = INK
+      ctx.lineJoin = "round"
+      ctx.stroke()
+    }
+
+    // Shortened to its own box: four names side by side on a phone otherwise
+    // run into each other and spell nobody.
+    const who = ellipsise(ctx, versusName(entry.seat, seat, names), boxWidth - 4, 12)
+    label(ctx, who, x + boxWidth / 2, floor + 16, 12,
+      winner ? theme.accent : rgba(colors.foreground, 0.7))
+    label(ctx, `${entry.wins}`, x + boxWidth / 2, floor + 31, 11, rgba(colors.foreground, 0.5))
+
+    x += boxWidth + gap
+  }
+
+  label(ctx, view.rematchNote || "Space for a rematch", width / 2, height - 14, 12,
+    rgba(colors.foreground, 0.7), { bold: false })
+}
 
 // ---------------------------------------------------------------------------
 // Race
@@ -1672,6 +1853,12 @@ export function drawRace(ctx, view) {
 function drawRaceOverlay(ctx, view, layout) {
   const { race, theme } = view
   const seat = view.seat
+
+  if (race.phase === "matchOver") {
+    drawPodium(ctx, { ...view, ranked: rankPlayers(race.seated, "race") }, layout.width, layout.height)
+    return
+  }
+
   let title = ""
   let subtitle = ""
 
@@ -1683,9 +1870,6 @@ function drawRaceOverlay(ctx, view, layout) {
     subtitle = race.roundWinner === -1
       ? "neither of them got there"
       : `${levelName(setBossLevel(race.round))} cleared first`
-  } else if (race.phase === "matchOver") {
-    title = `MATCH TO ${versusName(race.matchWinner, seat, view.names)}`
-    subtitle = view.rematchNote || "Space for a rematch"
   } else return
 
   const note = race.seated

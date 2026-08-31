@@ -32,7 +32,13 @@ import {
 } from "./Versus.js"
 import { RACE_COLUMNS, RACE_ROWS, Race, setBossLevel } from "./Race.js"
 import { FATALITIES, bossFor } from "./Bosses.js"
-import { gameOverMessages, levelMessages, partyComboName, pickDifferent } from "./Messages.js"
+import {
+  gameOverMessages,
+  levelMessages,
+  partyComboName,
+  pickDifferent,
+  podiumMessages
+} from "./Messages.js"
 import { Charts, PERIOD_LABELS, describeRun, relativeTime } from "./Scores.js"
 import { darker, mixColors, nextTheme, preferredTheme, resolve, rgba, themes } from "./Palette.js"
 
@@ -866,6 +872,7 @@ let raceAcross = 2
 let inLobby = false
 let lobbyState = null
 let lobbyNote = ""
+let podiumMessage = ""
 
 const versusDialog = el("versus-dialog")
 const versusNoteText = el("versus-note")
@@ -1045,7 +1052,11 @@ function makeMatch() {
   const options = { wrap: game.wallsWrap, winsNeeded, present: localPresence() }
   const model = matchMode === "race" ? new Race(options) : new Versus(options)
   model.on("roundOver", winner => announceRound(winner))
-  model.on("matchOver", winner => announce(`${versusLabel(winner)} wins the match.`))
+  model.on("matchOver", winner => {
+    // Chosen once, so the podium does not shuffle its own joke every frame.
+    podiumMessage = pickDifferent(podiumMessages, podiumMessage)
+    announce(`${versusLabel(winner)} wins the match.`)
+  })
   // A bonus nobody sees is a bonus nobody plays for, and a lane has no tweens
   // of its own, so the burst is set here and decayed by the frame loop.
   model.on("bonus", (seat, name, points) => showLaneBonus(seat, `+${points} ${name}`))
@@ -1123,7 +1134,13 @@ function joinRoom(code) {
         return
       }
       if (!match || match.snapshot().mode !== state.mode) match = makeMatch()
+      const wasOver = match.phase === PHASE_MATCH_OVER
       match.applySnapshot(state)
+      // `applySnapshot` does not replay the model's events, so the podium's
+      // line is picked here when a match arrives finished.
+      if (!wasOver && match.phase === PHASE_MATCH_OVER) {
+        podiumMessage = pickDifferent(podiumMessages, podiumMessage)
+      }
       if (inLobby) {
         inLobby = false
         renderLobby()
@@ -1631,6 +1648,7 @@ function versusView() {
       return laneMusic(true, { bass: level * 0.7, mid: level * 0.5, treble: level * 0.35, leadSpectrum: [] })
     },
     lobbyNote,
+    message: podiumMessage,
     hint: isOnline
       ? versusSeat === null ? "watching" : "arrows or W A S D"
       : "P1 arrows   ·   P2 W A S D",

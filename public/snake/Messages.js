@@ -124,3 +124,27 @@ export function pickDifferent(messages, previous) {
   while (next === previous) next = messages[Math.floor(Math.random() * messages.length)]
   return next
 }
+
+// Read on the podium at the end of a match, by the one who won it and by the
+// ones who did not. Both halves of that matter, which is why none of these
+// congratulate anybody very hard.
+export const podiumMessages = [
+  "The trophy is imaginary. The smugness is not.",
+  "Somebody has to be first. It was statistically going to be somebody.",
+  "A stunning victory over three other people playing snake.",
+  "Please collect your prize from the empty cell to the left.",
+  "The wall union congratulates the runners-up on their commitment.",
+  "This achievement has been logged nowhere at all.",
+  "The apples remain undefeated overall.",
+  "Certificate pending. Printer unavailable. Printer imaginary.",
+  "History will record this as a Tuesday.",
+  "The podium was assembled from spare obstacles.",
+  "Second place is the first of the losers, traditionally.",
+  "Your opponents have filed a formal complaint with nobody.",
+  "The Nokia 3310 remains unimpressed but polite.",
+  "A moment of silence for everyone who hit a wall.",
+  "Nobody's résumé improved during this match.",
+  "Somewhere, a boss is relieved it was not asked to help.",
+  "The confetti budget was spent entirely on this line.",
+  "Statistically, the other snakes were also snakes."
+]
