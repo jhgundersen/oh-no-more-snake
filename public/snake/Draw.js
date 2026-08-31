@@ -1387,6 +1387,12 @@ export function drawVersus(ctx, view) {
     }
     ctx.globalAlpha = 1
 
+    // Seeing stars after a nose-to-nose, the same three that go round a boss
+    // and a snake that have butted heads.
+    if (player.dizzyMs > 0 && head) {
+      drawStars(ctx, (head.x + 0.5) * cell, (head.y + 0.5) * cell - cell * 0.7, cell)
+    }
+
     // The cell it was heading for, marked where it never got to. Red is the
     // one colour outside the palette the game already uses for something being
     // wrong, in a boss's eyes.

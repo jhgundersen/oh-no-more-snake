@@ -51,6 +51,10 @@ const FASTEST_INTERVAL = 70
 // minutes of mutual politeness is a draw.
 const STALEMATE_TICKS = 1800
 
+// How long two snakes see stars after meeting nose to nose. The same 1100 ms
+// a boss headbutt costs, because it is the same collision.
+const DIZZY_MS = 1100
+
 // Bitten below this there is nothing left to be: a snake that is only a head
 // has been eaten. It is what finishes a boss, and it finishes a duel the same.
 const MINIMUM_LENGTH = 2
@@ -233,6 +237,9 @@ function makePlayer(seat) {
     total: 0,
     wins: 0,
     alive: true,
+    // Seeing stars. Nose to nose costs both of them a moment and nothing else,
+    // exactly as it costs a snake and a boss a moment.
+    dizzyMs: 0,
     reason: null,
     // The cell it was heading for when it died, which is not where its head
     // is: a snake is left standing where it crashed so the last frame of a
@@ -246,14 +253,15 @@ export class Versus {
     random = Math.random,
     columns = VERSUS_COLUMNS,
     rows = VERSUS_ROWS,
-    wrap = true,
     winsNeeded = WINS_NEEDED,
     present = null
   } = {}) {
     this.random = random
     this.columns = columns
     this.rows = rows
-    this.wrap = wrap
+    // Multiplayer always wraps. A duel is decided by what the players do to
+    // each other, and an edge that kills you is a third party with an opinion.
+    this.wrap = true
     this.winsNeeded = winsNeeded
     this.listeners = new Map()
 
@@ -381,6 +389,7 @@ export class Versus {
       player.turnQueue = []
       player.score = 0
       player.alive = player.present
+      player.dizzyMs = 0
       player.reason = null
       player.crashAt = null
     })
@@ -419,6 +428,8 @@ export class Versus {
   // The same two-turn queue the single-player game has, for the same reason: a
   // fast double tap around a corner has to survive a tick boundary. It matters
   // more here, because online the tick boundary is somebody else's.
+  // Steering while seeing stars is allowed, and is how anybody gets out of a
+  // nose-to-nose: the turn is queued and taken the moment the stars clear.
   turn(seat, dx, dy) {
     const player = this.players[seat]
     if (!player || !player.present || !player.alive) return false
@@ -440,6 +451,9 @@ export class Versus {
   // separately, at `tickInterval`, because a board step is not a wall-clock
   // event: the browser runs them off an accumulator and the room off a timer.
   advance(ms) {
+    for (const player of this.players) {
+      if (player.dizzyMs > 0) player.dizzyMs = Math.max(0, player.dizzyMs - ms)
+    }
     if (this.phase !== PHASE_COUNTDOWN && this.phase !== PHASE_ROUND_OVER) return
     this.phaseMs = Math.max(0, this.phaseMs - ms)
     if (this.phaseMs > 0) return
@@ -507,53 +521,61 @@ export class Versus {
       if (player.present && !player.alive && player.snake.length) player.snake = []
     }
 
-    const running = this.players.filter(player => player.present && player.alive)
+    // Everybody still on the board can be bitten; everybody not seeing stars
+    // moves. A snake that has just been headbutted stays exactly where it is,
+    // which is what makes it worth headbutting.
+    const onBoard = this.players.filter(player => player.present && player.alive)
+    const moving = onBoard.filter(player => player.dizzyMs <= 0)
+
     const heads = new Map()
-    const offBoard = new Map()
     const eats = new Map()
 
-    for (const player of running) {
+    for (const player of moving) {
       if (player.turnQueue.length) player.direction = player.turnQueue.shift()
       const head = point(player.snake[0].x + player.direction.x, player.snake[0].y + player.direction.y)
-      let off = false
-      if (head.x < 0 || head.x >= this.columns || head.y < 0 || head.y >= this.rows) {
-        if (this.wrap) {
-          head.x = (head.x + this.columns) % this.columns
-          head.y = (head.y + this.rows) % this.rows
-        } else off = true
-      }
+      // Multiplayer always wraps, so an edge is a way round and never an
+      // ending. The only wall that kills is one standing on the board.
+      head.x = (head.x + this.columns) % this.columns
+      head.y = (head.y + this.rows) % this.rows
       heads.set(player, head)
-      offBoard.set(player, off)
       // An apple, or a piece somebody bit off somebody else. Both grow you.
-      eats.set(player, !off && (same(head, this.food) || has(this.scraps, head)))
+      eats.set(player, same(head, this.food) || has(this.scraps, head))
     }
+
+    // Nose to nose. Nobody wins that and nobody loses it either: both of them
+    // see stars, both stay where they are, and both can still be steered — a
+    // queued turn is taken the moment the stars clear, which is how anybody
+    // gets out of one.
+    const stunned = new Set()
+    for (const player of moving) {
+      for (const other of moving) {
+        if (other !== player && same(heads.get(player), heads.get(other))) stunned.add(player)
+      }
+    }
+    for (const player of stunned) {
+      player.dizzyMs = DIZZY_MS
+      this.emit("headbutt", player.seat)
+    }
+
+    const steppers = moving.filter(player => !stunned.has(player))
 
     // What each body will still be covering once it has moved. Dropping the
     // tail of a snake that is not growing is what makes following your own
     // tail — or somebody else's — legal, exactly as it is in single player.
     const bodies = new Map()
-    for (const player of running) {
+    for (const player of steppers) {
       bodies.set(player, player.snake.slice(0, player.snake.length - (eats.get(player) ? 0 : 1)))
     }
 
+    // A wall is a wall on the board and nothing else. Running into a rival, or
+    // into yourself, is a bite — resolved below, once everybody has moved.
     const deaths = new Map()
-    for (const player of running) {
-      const head = heads.get(player)
-      if (offBoard.get(player)) deaths.set(player, "wall")
-      else if (this.isObstacle(head)) deaths.set(player, "wall")
-      else if (has(bodies.get(player), head)) deaths.set(player, "self")
-      // Two or more heads into the same cell is nobody's fault and nobody's
-      // win. It is also the only way two of them can reach the apple on the
-      // same tick, which is why the apple never has to be argued over.
-      else if (running.some(other => other !== player && same(head, heads.get(other)))) {
-        deaths.set(player, "head-on")
-      }
-      // Running into a rival is not fatal any more. It is a bite, and it is
-      // resolved below, once everybody has moved.
+    for (const player of steppers) {
+      if (this.isObstacle(heads.get(player))) deaths.set(player, "wall")
     }
 
     let eaten = false
-    for (const player of running) {
+    for (const player of steppers) {
       const head = heads.get(player)
       if (deaths.has(player)) {
         // Left where it crashed rather than moved into the wall: the frame
@@ -576,7 +598,7 @@ export class Versus {
       } else player.snake.pop()
     }
 
-    this.resolveBites(running, deaths)
+    this.resolveBites(steppers, onBoard, deaths)
 
     // A round runs until one of them is left. With two on the board that is
     // the first death; with four it is the third.
@@ -596,13 +618,16 @@ export class Versus {
   //
   // Resolved after everybody has moved, so a bite is decided against where the
   // bodies ended up rather than where they set off from.
-  resolveBites(running, deaths) {
+  resolveBites(steppers, onBoard, deaths) {
     const bites = new Map()
-    for (const biter of running) {
+    for (const biter of steppers) {
       if (deaths.has(biter)) continue
       const head = biter.snake[0]
-      for (const victim of running) {
-        if (victim === biter || deaths.has(victim)) continue
+      // Yourself included: a head in your own body takes your own tail off,
+      // which is the same bite and the same consequence. There is no third
+      // way to lose a duel.
+      for (const victim of onBoard) {
+        if (deaths.has(victim)) continue
         const index = victim.snake.findIndex((cell, at) => at > 0 && same(cell, head))
         if (index <= 0) continue
         // Two mouthfuls out of one snake on one tick: the nearer the head, the
@@ -722,6 +747,7 @@ export class Versus {
         total: player.total,
         wins: player.wins,
         alive: player.alive,
+        dizzyMs: Math.round(player.dizzyMs),
         reason: player.reason,
         head: player.head,
         crash: player.crashAt ? this.indexOf(player.crashAt) : -1
@@ -758,6 +784,7 @@ export class Versus {
       player.total = incoming.total
       player.wins = incoming.wins
       player.alive = incoming.alive
+      player.dizzyMs = incoming.dizzyMs || 0
       player.reason = incoming.reason
       player.head = validHead(incoming.head)
       player.crashAt = incoming.crash < 0 ? null : this.cellAt(incoming.crash)

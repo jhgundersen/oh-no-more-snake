@@ -539,6 +539,13 @@ music.on("strongBeat", strength => {
 
 music.on("onset", () => foodBeatIn.restart())
 
+// A new song is news to everybody in the room, so a match is played to one
+// soundtrack rather than to four.
+music.on("trackChanged", () => {
+  if (applyingTrack || !online() || !net) return
+  net.setTrack(music.track, music.trackCount)
+})
+
 music.on("enabledChanged", () => {
   game.setPartyMode(music.enabled)
   if (music.enabled) {
@@ -693,8 +700,16 @@ addEventListener("drop", event => {
 const buttons = [
   { id: "mode", letter: "M", rest: () => `ode: ${game.endlessMode ? "Endless" : "Levels"}`,
     name: () => `Mode: ${game.endlessMode ? "Endless" : "Levels"}`, act: () => game.toggleMode() },
-  { id: "borders", letter: "B", rest: () => `orders: ${game.wallsWrap ? "Wrap" : "Solid"}`,
-    name: () => `Borders: ${game.wallsWrap ? "Wrap" : "Solid"}`, act: () => game.toggleWallsWrap() },
+  // Borders belong to a run. Multiplayer always wraps, so rather than let the
+  // button say something that is not true of the board on screen, it says what
+  // is true and stops taking the press.
+  { id: "borders", letter: "B",
+    rest: () => `orders: ${twoPlayer() || game.wallsWrap ? "Wrap" : "Solid"}`,
+    name: () => (twoPlayer()
+      ? "Borders: Wrap, and always so with more than one player"
+      : `Borders: ${game.wallsWrap ? "Wrap" : "Solid"}`),
+    off: () => twoPlayer(),
+    act: () => game.toggleWallsWrap() },
   { id: "food", letter: "F", rest: () => `ood: ${foods[game.foodStyleIndex % foods.length].glyph}`,
     name: () => "Food style", act: () => game.cycleFoodStyle(foods.length),
     family: () => foods[game.foodStyleIndex % foods.length].family },
@@ -1072,7 +1087,7 @@ function startLocalMatch() {
 }
 
 function makeMatch() {
-  const options = { wrap: game.wallsWrap, winsNeeded, present: localPresence() }
+  const options = { winsNeeded, present: localPresence() }
   const model = matchMode === "race" ? new Race(options) : new Versus(options)
   model.on("roundOver", winner => announceRound(winner))
   model.on("matchOver", winner => {
@@ -1129,9 +1144,26 @@ function joinRoom(code) {
   lobbyNote = "connecting…"
 
   net = new Net({
+    onTrack: message => {
+      if (message.seat === versusSeat) return
+      // Only from a playlist the same size as this one. Somebody who dropped
+      // their own music is on a different list, and being dragged to the wrong
+      // song is worse than staying on your own.
+      if (message.count !== music.trackCount) return
+      applyingTrack = true
+      music.selectTrack(message.index)
+      applyingTrack = false
+    },
     onWelcome: message => {
       versusSeat = message.seat
       matchMode = message.mode || matchMode
+      // Whatever the room already has on, so somebody arriving late is not the
+      // one person on a different song.
+      if (message.track && message.track.count === music.trackCount) {
+        applyingTrack = true
+        music.selectTrack(message.track.index)
+        applyingTrack = false
+      }
       lobbyNote = message.seat === null ? "both seats taken — you are watching" : ""
       // The room decides which seat this is, so what to ask for is only
       // knowable once it has said.
@@ -1198,7 +1230,7 @@ function joinRoom(code) {
       updateHud()
     }
   })
-  net.connect(wanted, { wrap: game.wallsWrap })
+  net.connect(wanted)
 }
 
 function createRoom() {
@@ -1950,6 +1982,7 @@ function updateButtons() {
       ? `<b>${button.letter}</b>${escapeHtml(button.rest())}`
       : escapeHtml(button.rest())
     node.setAttribute("aria-label", button.name())
+    node.disabled = button.off ? button.off() : false
     node.style.fontFamily = button.family ? button.family() : ""
   }
 }

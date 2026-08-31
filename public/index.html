@@ -907,6 +907,11 @@
 			background: var(--button-active);
 		}
 
+		button[disabled] {
+			opacity: 0.5;
+			cursor: default;
+		}
+
 		button:focus-visible {
 			outline: 2px solid var(--fg);
 			outline-offset: 2px;

@@ -123,6 +123,13 @@ export class MusicController {
     return Boolean(this.bossTrack)
   }
 
+  // How many songs are on the playlist. A room compares this before moving
+  // anybody to a track number: somebody who dropped their own music is on a
+  // different list, and the same number means a different song there.
+  get trackCount() {
+    return this.tracks.length
+  }
+
   get bossTrackCount() {
     return BOSS_TRACKS.length
   }

@@ -47,7 +47,6 @@ export class Net {
     this.socket = null
     this.code = ""
     this.seat = null
-    this.wrap = true
     this.status = "idle"
   }
 
@@ -59,7 +58,7 @@ export class Net {
     return this.connected && this.seat === null
   }
 
-  connect(code, { wrap = true } = {}) {
+  connect(code) {
     this.close()
     this.code = String(code).toLowerCase()
     this.seat = null
@@ -69,7 +68,7 @@ export class Net {
     // page rather than assumed: the game has to keep working on a plain
     // local server, and a hardcoded wss:// there fails with nothing to read.
     const scheme = location.protocol === "https:" ? "wss:" : "ws:"
-    const url = `${scheme}//${location.host}/api/room/${encodeURIComponent(this.code)}?wrap=${wrap ? 1 : 0}`
+    const url = `${scheme}//${location.host}/api/room/${encodeURIComponent(this.code)}`
 
     let socket
     try {
@@ -115,9 +114,12 @@ export class Net {
     if (!message || typeof message !== "object") return
     if (message.t === "welcome") {
       this.seat = message.seat
-      this.wrap = message.wrap
       this.setStatus(message.seat === null ? "watching" : "waiting")
       this.handlers.onWelcome?.(message)
+      return
+    }
+    if (message.t === "track") {
+      this.handlers.onTrack?.(message)
       return
     }
     if (message.t === "lobby") {
@@ -180,6 +182,10 @@ export class Net {
 
   beat(strength) {
     this.send({ t: "beat", strength })
+  }
+
+  setTrack(index, count) {
+    this.send({ t: "track", index, count })
   }
 
   setReady(ready) {

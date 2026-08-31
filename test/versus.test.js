@@ -145,9 +145,10 @@ test("a turn may be queued during the countdown, so the first tick can already b
 
 // --- dying -------------------------------------------------------------------
 
-test("a solid wall ends the round and hands it to the other player", () => {
-  const versus = arena({ wrap: false })
-  place(versus, 0, [[versus.columns - 1, 5], [versus.columns - 2, 5], [versus.columns - 3, 5]], [1, 0])
+test("a wall on the board ends the round and hands it to the other player", () => {
+  const versus = arena()
+  versus.obstacles = [{ x: 6, y: 5 }]
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
   versus.tick()
 
   assert.equal(versus.phase, PHASE_ROUND_OVER)
@@ -157,8 +158,19 @@ test("a solid wall ends the round and hands it to the other player", () => {
   assert.equal(versus.players[1].wins, 1)
 })
 
+test("the border is always a way round, never an ending", () => {
+  const versus = arena()
+  assert.equal(versus.wrap, true)
+  place(versus, 0, [[versus.columns - 1, 5], [versus.columns - 2, 5], [versus.columns - 3, 5]], [1, 0])
+  versus.tick()
+
+  assert.equal(versus.players[0].alive, true)
+  assert.deepEqual(versus.players[0].snake[0], { x: 0, y: 5 })
+  assert.equal(versus.phase, PHASE_PLAYING)
+})
+
 test("a wrapping border carries the snake round instead", () => {
-  const versus = arena({ wrap: true })
+  const versus = arena()
   place(versus, 0, [[versus.columns - 1, 5], [versus.columns - 2, 5], [versus.columns - 3, 5]], [1, 0])
   versus.tick()
 
@@ -166,13 +178,29 @@ test("a wrapping border carries the snake round instead", () => {
   assert.deepEqual(versus.players[0].snake[0], { x: 0, y: 5 })
 })
 
-test("running into your own body loses the round", () => {
+test("running into your own body takes your own tail off", () => {
+  const versus = arena()
+  // Straight into its own flank, four cells back.
+  place(versus, 0, [[5, 5], [5, 4], [6, 4], [6, 5], [6, 6], [6, 7]], [1, 0])
+  versus.tick()
+
+  // Still going, and shorter. There is no third way to lose a duel.
+  assert.equal(versus.players[0].alive, true)
+  assert.equal(versus.phase, PHASE_PLAYING)
+  assert.deepEqual(versus.players[0].snake,
+    [{ x: 6, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 4 }, { x: 6, y: 4 }])
+  // What came off is on the board, the same as a bite out of anybody else.
+  assert.deepEqual(versus.scraps, [{ x: 6, y: 6 }])
+})
+
+test("clipping your own tail costs one cell and leaves nothing behind", () => {
   const versus = arena()
   place(versus, 0, [[5, 5], [6, 5], [6, 6], [5, 6], [4, 6]], [0, 1])
   versus.tick()
 
-  assert.equal(versus.players[0].reason, "self")
-  assert.equal(versus.roundWinner, 1)
+  assert.equal(versus.players[0].alive, true)
+  assert.equal(versus.players[0].snake.length, 4, "five, less the tail it left and the cell it bit")
+  assert.deepEqual(versus.scraps, [], "the tail had already moved on")
 })
 
 test("running into the other snake bites it rather than ending you", () => {
@@ -228,23 +256,60 @@ test("an apple never lands on something bitten off", () => {
   }
 })
 
-test("two heads into the same cell take each other with them", () => {
+test("nose to nose is stars, not an ending", () => {
+  const versus = arena()
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  place(versus, 1, [[7, 5], [8, 5], [9, 5]], [-1, 0])
+  const before = [0, 1].map(seat => versus.players[seat].snake.map(cell => ({ ...cell })))
+  versus.tick()
+
+  assert.equal(versus.phase, PHASE_PLAYING)
+  for (const seat of [0, 1]) {
+    assert.equal(versus.players[seat].alive, true)
+    assert.ok(versus.players[seat].dizzyMs > 0, "it should be seeing stars")
+    assert.deepEqual(versus.players[seat].snake, before[seat], "and it should not have moved")
+  }
+})
+
+test("stars wear off, and a turn taken during them is taken the moment they do", () => {
   const versus = arena()
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
   place(versus, 1, [[7, 5], [8, 5], [9, 5]], [-1, 0])
   versus.tick()
 
-  assert.equal(versus.players[0].reason, "head-on")
-  assert.equal(versus.players[1].reason, "head-on")
-  assert.equal(versus.roundWinner, DRAW)
-  assert.equal(versus.players[0].wins, 0)
-  assert.equal(versus.players[1].wins, 0)
+  // Steering out of it is allowed, and is the way out of it.
+  assert.equal(versus.turn(0, 0, -1), true)
+  versus.tick()
+  assert.deepEqual(versus.players[0].snake[0], { x: 5, y: 5 }, "still stunned")
+
+  versus.advance(1200)
+  assert.equal(versus.players[0].dizzyMs, 0)
+  versus.tick()
+  assert.deepEqual(versus.players[0].snake[0], { x: 5, y: 4 }, "and away it goes")
 })
 
-test("a head-on with the apples uneven goes to whoever ate more", () => {
+test("a snake seeing stars is still there to be bitten", () => {
   const versus = arena()
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
   place(versus, 1, [[7, 5], [8, 5], [9, 5]], [-1, 0])
+  versus.tick()
+  assert.ok(versus.players[1].dizzyMs > 0)
+
+  // A third snake helps itself while the two of them are seeing stars.
+  versus.players[2].present = true
+  versus.players[2].alive = true
+  place(versus, 2, [[8, 4], [8, 3], [8, 2]], [0, 1])
+  versus.tick()
+
+  assert.equal(versus.players[2].score, 1, "a bite is worth a point")
+  assert.ok(versus.players[1].snake.length < 3)
+})
+
+test("the last of them going together is decided on apples", () => {
+  const versus = arena()
+  versus.obstacles = [{ x: 6, y: 5 }, { x: 6, y: 9 }]
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  place(versus, 1, [[5, 9], [4, 9], [3, 9]], [1, 0])
   versus.players[1].score = 2
   versus.tick()
 
@@ -319,16 +384,18 @@ test("an apple never lands on a snake or a wall", () => {
   }
 })
 
-test("only one of them can take an apple, because reaching it together is a head-on", () => {
+test("nobody takes an apple two of them reached at once", () => {
   const versus = arena()
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
   place(versus, 1, [[7, 5], [8, 5], [9, 5]], [-1, 0])
   versus.food = { x: 6, y: 5 }
   versus.tick()
 
+  // They stop nose to nose over it instead, and it is still there.
   assert.equal(versus.players[0].score, 0)
   assert.equal(versus.players[1].score, 0)
-  assert.equal(versus.roundWinner, DRAW)
+  assert.deepEqual(versus.food, { x: 6, y: 5 })
+  assert.equal(versus.phase, PHASE_PLAYING)
 })
 
 // --- steering ----------------------------------------------------------------
@@ -398,7 +465,7 @@ test("the match ends when someone has taken enough rounds", () => {
 })
 
 test("a round nobody is trying to win is eventually a draw", () => {
-  const versus = arena({ wrap: true })
+  const versus = arena()
   // Two snakes going round the same empty board for ever.
   for (let step = 0; step < 3000 && versus.phase === PHASE_PLAYING; ++step) versus.tick()
 
@@ -453,16 +520,12 @@ test("a cell off the board travels as nowhere and comes back as nowhere", () => 
   assert.deepEqual(watcher.food, { x: -1, y: -1 })
 })
 
-test("a cell past the far wall does not come back as a cell on the next row", () => {
-  const versus = arena({ wrap: false })
-  place(versus, 0, [[versus.columns - 1, 5], [versus.columns - 2, 5], [versus.columns - 3, 5]], [1, 0])
-  versus.tick()
-  assert.equal(versus.players[0].reason, "wall")
-  assert.deepEqual(versus.players[0].crashAt, { x: versus.columns, y: 5 })
-
-  const watcher = new Versus()
-  watcher.applySnapshot(versus.snapshot())
-  assert.equal(watcher.players[0].crashAt, null)
+test("a cell off the board travels as nowhere, whatever put it there", () => {
+  const versus = arena()
+  assert.equal(versus.indexOf({ x: versus.columns, y: 5 }), -1)
+  assert.equal(versus.indexOf({ x: 5, y: versus.rows }), -1)
+  assert.equal(versus.indexOf({ x: -1, y: -1 }), -1)
+  assert.deepEqual(versus.cellAt(-1), { x: -1, y: -1 })
 })
 
 // --- heads -------------------------------------------------------------------
@@ -654,14 +717,15 @@ test("the round goes to the last one standing", () => {
   assert.equal(versus.players[1].wins, 1)
 })
 
-test("when the last of them go together it is decided on apples", () => {
+test("when the last of four go together it is decided on apples", () => {
   const versus = foursome()
   versus.players[2].alive = false
   versus.players[3].alive = false
   versus.players[0].score = 4
   versus.players[1].score = 2
+  versus.obstacles = [{ x: 6, y: 5 }, { x: 6, y: 9 }]
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
-  place(versus, 1, [[7, 5], [8, 5], [9, 5]], [-1, 0])
+  place(versus, 1, [[5, 9], [4, 9], [3, 9]], [1, 0])
   versus.tick()
 
   assert.equal(versus.roundWinner, 0)

@@ -75,11 +75,14 @@ export class VersusRoom extends DurableObject {
     this.match = null
     this.mode = MODES[0]
     this.winsNeeded = 3
+    // What is on the playlist, so everybody in the room hears the same song.
+    // Only which one: where it is up to is nobody's business but the browser
+    // playing it, and syncing that would be a clock problem for no gain.
+    this.track = null
     this.chat = []
     this.timer = null
     this.lastAt = 0
     this.broadcastAt = 0
-    this.wrap = true
   }
 
   // A WebSocket upgrade is the one thing that still has to be a fetch. The
@@ -95,10 +98,8 @@ export class VersusRoom extends DurableObject {
       return new Response("room is full", { status: 409 })
     }
 
-    // The first arrival brings the borders with them, because they are the one
-    // who chose them; everybody after that plays the room's game.
+    // A room that has emptied starts again from nothing.
     if (!this.sockets.size) {
-      this.wrap = new URL(request.url).searchParams.get("wrap") !== "0"
       this.match = null
       this.chat = []
     }
@@ -126,9 +127,9 @@ export class VersusRoom extends DurableObject {
     this.send(server, {
       t: "welcome",
       seat: seat === undefined ? null : seat,
-      wrap: this.wrap,
       mode: this.mode,
-      seats: SEATS
+      seats: SEATS,
+      track: this.track
     })
     // What was said before they arrived, so a lobby is not a blank room.
     if (this.chat.length) this.send(server, { t: "chatlog", messages: this.chat })
@@ -166,7 +167,6 @@ export class VersusRoom extends DurableObject {
     this.broadcast({
       t: "lobby",
       mode: this.mode,
-      wrap: this.wrap,
       winsNeeded: this.winsNeeded,
       seats: SEATS,
       minimum: MIN_SEATS,
@@ -194,7 +194,7 @@ export class VersusRoom extends DurableObject {
   }
 
   makeMatch() {
-    const options = { wrap: this.wrap, winsNeeded: this.winsNeeded, present: this.presence() }
+    const options = { winsNeeded: this.winsNeeded, present: this.presence() }
     return this.mode === "race" ? new Race(options) : new Versus(options)
   }
 
@@ -323,6 +323,18 @@ export class VersusRoom extends DurableObject {
     // A beat can only be heard by the browser playing the music, so it is
     // reported rather than measured. It opens a window on that seat's lane and
     // on nothing else, which is the most it could be trusted with anyway.
+    // A new song. Passed on as it is, with the size of the playlist it came
+    // from: somebody who dropped their own music has a different list, and
+    // being moved to the wrong song is worse than staying on your own.
+    if (message.t === "track") {
+      const index = Math.floor(Number(message.index))
+      const count = Math.floor(Number(message.count))
+      if (!Number.isFinite(index) || index < 0 || !Number.isFinite(count) || count < 1) return
+      this.track = { index, count }
+      this.broadcast({ t: "track", index, count, seat: info.seat })
+      return
+    }
+
     if (message.t === "beat") {
       this.match?.registerBeat?.(info.seat, Number(message.strength) || 0)
       return

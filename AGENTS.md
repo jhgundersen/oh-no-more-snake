@@ -298,14 +298,29 @@ third mode should mean adding a model, not editing those two.
   field sends a message that comes back as a lobby, the field being typed in
   was replaced after every letter and the caret thrown out with it. The name is
   also kept locally at once and told to the room only once the typing stops.
-- **A duel is a boss fight between players.** Running into a rival bites it
-  rather than killing you: what is behind the bite comes off as scraps anybody
-  can eat, and a snake left with nothing but a head has been eaten — the same
-  rule that finishes a boss. Bites are resolved after everybody has moved, so
-  one is decided against where the bodies ended up rather than where they set
-  off from, and two mouthfuls out of one snake on one tick take the worse of
-  them. Walls, your own body and a nose-to-nose meeting stay fatal: without
-  something that still kills you outright there is no reason to steer.
+- **A duel is a boss fight between players, and has exactly two endings.** A
+  wall on the board, or being bitten down to a bare head. Nothing else. Running
+  into a rival — or into yourself — is a bite: what is behind it comes off as
+  scraps anybody can eat, and a snake left with nothing but a head has been
+  eaten, which is the same rule that finishes a boss. Bites are resolved after
+  everybody has moved, so one is decided against where the bodies ended up
+  rather than where they set off from, and two mouthfuls out of one snake on
+  one tick take the worse of them.
+- **Nose to nose is stars, not an ending.** Both stay where they are and both
+  see them, exactly as a snake and a boss do. Steering is allowed while they
+  last and the queued turn is taken the moment they clear, which is the only
+  way out of one — and a snake seeing stars is still on the board to be bitten,
+  which is what makes a headbutt worth landing.
+- **Multiplayer always wraps.** There is no borders option on either model and
+  no `?wrap=` on a room. An edge that kills you is a third party with an
+  opinion, and a duel is decided by what the players do to each other. The
+  Borders button belongs to a run and is locked while a match is on rather than
+  left saying something untrue of the board on screen.
+- **The playlist is synced, and only the playlist.** Which song, not where it
+  is up to: a position would be a clock problem for no gain. A track is only
+  applied from a playlist the same length as this one, because somebody who
+  dropped their own music is on a different list and the same number is a
+  different song there.
 - **A lobby is not a doorway.** A match starts when both seats are filled *and*
   both players have said they are ready. Changing the mode clears readiness,
   because changing the game is a reason to look again before starting it.

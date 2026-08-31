@@ -103,13 +103,23 @@ it could be trusted with. Party Mode's other scoring needs no music at all.
 
 **Duel** — one board, one apple, and a round is won by being the last one on it.
 
-Running into somebody is not fatal any more: it is a **bite**, the same one a
-snake takes out of a boss. Everything behind the bite comes off and lies there
-for anybody to eat, and reaching far enough forward to leave a rival with
-nothing but a head eats it outright — which is the rule that finishes a boss,
-and the only reason chasing anybody is worth the risk. Walls and your own body
-are still fatal, and two snakes into the same cell nose first still takes them
-both; if that leaves nobody, the round goes to whoever ate more.
+There are exactly two ways to lose one: **run into a wall**, or **be bitten
+down to nothing but a head**. Nothing else ends you.
+
+Running into somebody is a **bite**, the same one a snake takes out of a boss:
+everything behind it comes off and lies there for anybody to eat, and reaching
+far enough forward to leave a rival with nothing but a head eats it outright.
+That is the rule that finishes a boss, and the only reason chasing anybody is
+worth the risk. Running into *yourself* is the same bite with the same
+consequence — your own tail comes off.
+
+Nose to nose is neither: both of them see stars for a moment and stay exactly
+where they are, which is what a headbutt costs a snake and a boss. You can
+steer while seeing them, and the turn is taken the moment they clear.
+
+A wall means a wall standing on the board. **Borders always wrap in
+multiplayer** — an edge that kills you is a third party with an opinion — so
+the Borders button belongs to a run and is locked while a match is on.
 
 Every apple eaten speeds the board up for all of them.
 

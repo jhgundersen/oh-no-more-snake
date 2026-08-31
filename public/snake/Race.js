@@ -68,7 +68,7 @@ function memoryStore() {
   }
 }
 
-function makeLane(seat, wrap) {
+function makeLane(seat) {
   return {
     seat,
     // A seat nobody is sitting in gets no board and no clock. Seats stay where
@@ -86,20 +86,21 @@ function makeLane(seat, wrap) {
     prepared: false,
     finished: false,
     reason: null,
-    accumulator: 0,
-    wrap
+    accumulator: 0
   }
 }
 
 export class Race {
-  constructor({ wrap = true, winsNeeded = WINS_NEEDED, present = null } = {}) {
+  constructor({ winsNeeded = WINS_NEEDED, present = null } = {}) {
     this.columns = RACE_COLUMNS
     this.rows = RACE_ROWS
-    this.wrap = wrap
+    // Multiplayer always wraps. A race is decided by who gets up the levels
+    // first, and an edge that ends a lane is a third party with an opinion.
+    this.wrap = true
     this.winsNeeded = winsNeeded
     this.listeners = new Map()
 
-    this.players = [0, 1, 2, 3].map(seat => makeLane(seat, wrap))
+    this.players = [0, 1, 2, 3].map(seat => makeLane(seat))
     this.players.forEach((lane, seat) => this.watch(lane, seat))
     if (present) this.setPresent(present)
 
@@ -389,7 +390,7 @@ export class Race {
 
   toLobby() {
     const kept = this.players.map(lane => ({ head: lane.head, present: lane.present }))
-    this.players = [0, 1, 2, 3].map(seat => makeLane(seat, this.wrap))
+    this.players = [0, 1, 2, 3].map(seat => makeLane(seat))
     this.players.forEach((lane, seat) => {
       lane.head = kept[seat].head
       lane.present = kept[seat].present
