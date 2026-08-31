@@ -79,12 +79,21 @@ Each one is a whole `Game`, so a race gets the levels, the layouts, the bosses,
 the snake eater, the ball and Party Mode without a second implementation of any
 of them.
 
-**Party Mode, one player at a time.** Either player can turn it on for their own
-board in the lobby, and a small party hat over that snake's head says which. It
-brings everything it brings to a run: the combo multiplier, Food Frenzy,
-Reverse Venom, Snake Byte, Corner Cutting and the rest. The disco ball still
-works too — it only appears on a board without a party, and taking it starts
-one for that player alone.
+**Party Mode is simply how a race is played** — there is no version without the
+combos and nothing to ask about it. It brings everything it brings to a run:
+the combo multiplier, Food Frenzy, Reverse Venom, Snake Byte, Corner Cutting
+and the rest. The multiplier shows in each lane's caption, since the meters a
+run uses belong to one board and there may be four.
+
+Every board moves to the beat the way a run's does — the flash, the throb and
+the wave down the snake. Online each moves to the beats its own player
+reported, so a lane dances to music this machine cannot hear. A duel does the
+same, on whatever this browser is playing.
+
+The disco ball stays on the board rather than vanishing when the party starts,
+because here it is the offer of the *music* — the one part of a party a room
+cannot switch on for you. Eating one starts it. `p` and `n` work during a match
+too.
 
 Beats are the exception. Only the browser playing the music can hear one, so
 online it is reported to the room rather than measured there, which means Beat
@@ -116,9 +125,13 @@ number pad (`8456`). The vi keys a run steers with are not among them, because
 `jkl` belong to the third player here. No chat and no link, for obvious reasons.
 
 **Online.** *Create a room* gives you a lobby with a link to send. Whoever
-opens it takes the other seat; anyone after that watches and can still talk.
-You take the seat the room gives you and with it that seat's name and face, and
-the room remembers both, so a rematch does not mean picking again.
+opens it takes a free seat; anyone after that watches and can still talk. You
+take the seat the room gives you and with it that seat's name and face, and the
+room remembers both, so a rematch does not mean picking again.
+
+The chat moves out of the lobby and sits beside the board while a match is on:
+`Enter` or the speech bubble opens it, and it goes under the board rather than
+beside it where there is no width for that.
 
 The room runs the game — it holds the board, decides who reached the apple, and
 sends both browsers the same picture to draw, which is why neither of them can

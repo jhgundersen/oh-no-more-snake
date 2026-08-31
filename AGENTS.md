@@ -253,6 +253,11 @@ third mode should mean adding a model, not editing those two.
   The beat, the bursts and the boss music all read state the room has already
   sent, so none of them may sit behind the early return that skips stepping a
   board this browser does not own.
+- **There is one chat, and it moves.** It lives in the lobby and beside the
+  board during a match, by being reparented rather than duplicated — two of
+  them is two logs that disagree. The board is measured around the panel and
+  centred in what is left, so opening it never covers the board it made room
+  for; where there is no width for that, it goes underneath instead.
 - **The podium is the end of a match.** Ranked on wins, then on whatever the
   mode counts, then on seat so two players who did equally well are still put
   in a fixed order. The winner smiles and the rest do not, which is a mouth
@@ -265,12 +270,16 @@ third mode should mean adding a model, not editing those two.
   moment it can be started from. A combo nobody can see is a combo nobody plays
   for: a run shows it in the meters, and a race shows it in the lane's caption,
   because the meters belong to one board and there may be four.
-- **Party Mode in a race belongs to one player.** It changes what scores on
-  that board and touches nothing on the other, and the hat over the head is how
-  anyone can tell. Beats are the one part that cannot be measured server-side —
-  only the browser playing the music hears them — so they are reported, and a
-  reported beat may only ever open a window on the lane of the seat that sent
-  it. Nothing else about Party Mode needs a beat.
+- **Party Mode is how a race is played, not a choice about it.** Every lane has
+  it, which is why there is no hat and no toggle: both only ever answered a
+  question nobody is being asked. Beats are the one part that cannot be
+  measured server-side — only the browser playing the music hears them — so
+  they are reported, and a reported beat may only ever open a window on the
+  lane of the seat that sent it. Nothing else about Party Mode needs a beat.
+- **The disco ball stays on a race board.** `setPartyMode` would ordinarily
+  take it away, the party having started; here it is put back, because it is
+  the offer of the music rather than of the party, and the music is the one
+  part a room cannot switch on for anybody.
 - **Both models are driven by one `step(ms)` and one `pace`.** The room and the
   browser call those and nothing else, which is what lets a race run its two
   lanes on two different clocks — a lane on 2.3 moves quicker than one on 2.1 —
