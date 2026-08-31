@@ -14,6 +14,15 @@ import {
 } from "./scores.js"
 import { issueRunToken, readRunToken } from "./runtoken.js"
 
+// Exported here because a Durable Object class has to be reachable from the
+// Worker's entry module, not only from its own file.
+export { VersusRoom } from "./room.js"
+
+// A room code is what somebody reads out over a phone, so it is short, and it
+// is the only thing standing between a match and a stranger, so it is not too
+// short. Anything else is not a code and gets no object.
+const ROOM_CODE = /^[a-z0-9]{4,12}$/
+
 const PERIOD_NAMES = Object.keys(PERIODS)
 
 async function readBoards(env) {
@@ -97,6 +106,19 @@ function httpsRedirect(request, url) {
   return target === request.url ? null : target
 }
 
+// One object per code, and the same code always finds the same one — which is
+// the entire matchmaking system: two people who type the same word are in the
+// same room.
+function roomRequest(request, env, url) {
+  const code = url.pathname.slice("/api/room/".length).toLowerCase()
+  if (!ROOM_CODE.test(code)) return json({ error: "a room code is 4 to 12 letters or digits" }, 400)
+  if (!env.ROOMS) return json({ error: "rooms are not configured" }, 503)
+  if (request.headers.get("upgrade") !== "websocket") {
+    return json({ error: "expected a websocket upgrade" }, 426)
+  }
+  return env.ROOMS.getByName(code).fetch(request)
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -115,6 +137,8 @@ export default {
       const { token } = await issueRunToken(env.RUN_TOKEN_SECRET)
       return json({ token }, 200, { "cache-control": "no-store" })
     }
+
+    if (url.pathname.startsWith("/api/room/")) return roomRequest(request, env, url)
 
     if (url.pathname === "/api/scores") {
       if (request.method === "GET") {

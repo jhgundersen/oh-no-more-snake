@@ -8,6 +8,7 @@
 // belong to web.js; game rules belong to Game.js.
 
 import { COLUMNS, ROWS, levelName } from "./Game.js"
+import { HEADS } from "./Versus.js"
 import { spectrumRange } from "./Audio.js"
 import { bossFor, drawPortrait } from "./Bosses.js"
 import { mixColors, parseColor, rgba } from "./Palette.js"
@@ -34,10 +35,20 @@ const fillRound = (ctx, x, y, width, height, radius, style) => {
   ctx.fill()
 }
 
-// Eyes, facing the way the thing is going. The snake's are wide and friendly;
-// a boss's are narrow, red and unimpressed. They are the fastest way to tell
-// at a glance which end of something is the end that matters.
-function drawFace(ctx, { x, y, size, direction, angry }) {
+// The ink a face is drawn in. Near-black and white rather than theme colours,
+// because a face has to read on top of whichever colour the head itself is,
+// and in ten palettes that is every colour there is.
+const INK = "#101014"
+const GLINT = "#ffffff"
+const ANGRY = "#ff4d4d"
+
+// Eyes, facing the way the thing is going. They are the fastest way to tell at
+// a glance which end of something is the end that matters — and in a duel,
+// whose end it is.
+//
+// `angry` is the boss's face and stays a flag of its own rather than becoming
+// head number three: a boss is not picking a look, it has one.
+function drawFace(ctx, { x, y, size, direction, angry, head = 0 }) {
   const forward = direction && (direction.x || direction.y) ? direction : { x: 1, y: 0 }
   // Across the direction of travel, so the pair always sits side by side and
   // the head reads as a head whichever way it is going.
@@ -49,35 +60,103 @@ function drawFace(ctx, { x, y, size, direction, angry }) {
   const spread = size * 0.22
   const dot = size * 0.14
 
+  // Everything below is laid out in the head's own frame — how far forward,
+  // how far to the side — so one description of a face works in all four
+  // directions of travel without a single special case.
+  const at = (ahead, aside) => ({
+    x: centreX + forward.x * ahead + across.x * aside,
+    y: centreY + forward.y * ahead + across.y * aside
+  })
+  const spin = Math.atan2(forward.y, forward.x)
+  const kind = angry ? "fierce" : (HEADS[head] || HEADS[0]).id
+
+  if (kind === "visor") {
+    // One band across the face, with a bright slit in it. The only head with
+    // no pair of eyes at all, which is what makes it unmistakable.
+    const length = (spread + dot) * 2
+    const thickness = dot * 1.5
+    ctx.save()
+    ctx.translate(centreX, centreY)
+    ctx.rotate(spin)
+    fillRound(ctx, -thickness / 2, -length / 2, thickness, length, thickness / 2, INK)
+    ctx.fillStyle = ANGRY
+    ctx.fillRect(-thickness * 0.12, -length * 0.34, thickness * 0.24, length * 0.68)
+    ctx.restore()
+    return
+  }
+
+  if (kind === "cyclops") {
+    const eye = at(0, 0)
+    ctx.beginPath()
+    ctx.arc(eye.x, eye.y, dot * 1.6, 0, Math.PI * 2)
+    ctx.fillStyle = GLINT
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(eye.x, eye.y, dot * 0.85, 0, Math.PI * 2)
+    ctx.fillStyle = INK
+    ctx.fill()
+    const glint = at(dot * 0.5, -dot * 0.5)
+    ctx.beginPath()
+    ctx.arc(glint.x, glint.y, dot * 0.3, 0, Math.PI * 2)
+    ctx.fillStyle = GLINT
+    ctx.fill()
+    return
+  }
+
   for (const side of [-1, 1]) {
-    const ex = centreX + across.x * spread * side
-    const ey = centreY + across.y * spread * side
+    const eye = at(0, spread * side)
+
+    if (kind === "sleepy") {
+      // A closed eye, bulging towards the front. Two of them and the snake
+      // looks perfectly happy about all of this.
+      const from = at(0, spread * side - dot)
+      const to = at(0, spread * side + dot)
+      const bulge = at(dot * 1.2, spread * side)
+      ctx.beginPath()
+      ctx.moveTo(from.x, from.y)
+      ctx.quadraticCurveTo(bulge.x, bulge.y, to.x, to.y)
+      ctx.strokeStyle = INK
+      ctx.lineWidth = Math.max(1.2, size * 0.09)
+      ctx.lineCap = "round"
+      ctx.stroke()
+      continue
+    }
+
+    if (kind === "slit") {
+      // A pupil standing upright across the line of travel, which is what
+      // makes a snake's eye a snake's eye.
+      ctx.beginPath()
+      ctx.ellipse(eye.x, eye.y, dot * 0.44, dot * 1.2, spin, 0, Math.PI * 2)
+      ctx.fillStyle = INK
+      ctx.fill()
+      continue
+    }
 
     ctx.beginPath()
-    ctx.arc(ex, ey, dot, 0, Math.PI * 2)
-    ctx.fillStyle = angry ? "#ff4d4d" : "#101014"
+    ctx.arc(eye.x, eye.y, dot, 0, Math.PI * 2)
+    ctx.fillStyle = kind === "fierce" ? ANGRY : INK
     ctx.fill()
 
-    if (angry) {
+    if (kind === "fierce") {
       // A short brow in front of each eye, sloping down towards the middle.
       // It has to stay clear of the eye itself: drawn across one, the pair
       // stops looking like a face and starts looking like a chevron.
+      const front = at(dot * 1.75, spread * side - dot * 0.1 * side)
+      const back = at(dot * 0.2, spread * side + dot * 1.7 * side)
       ctx.beginPath()
-      ctx.moveTo(ex + forward.x * dot * 1.75 - across.x * dot * 0.1 * side,
-        ey + forward.y * dot * 1.75 - across.y * dot * 0.1 * side)
-      ctx.lineTo(ex + forward.x * dot * 0.2 + across.x * dot * 1.7 * side,
-        ey + forward.y * dot * 0.2 + across.y * dot * 1.7 * side)
-      ctx.strokeStyle = "#101014"
+      ctx.moveTo(front.x, front.y)
+      ctx.lineTo(back.x, back.y)
+      ctx.strokeStyle = INK
       ctx.lineWidth = Math.max(1.2, size * 0.085)
       ctx.lineCap = "round"
       ctx.stroke()
     } else {
       // A glint, which is most of what makes an eye look friendly and costs
       // one more circle to do.
+      const glint = at(dot * 0.34, spread * side - dot * 0.34 * side)
       ctx.beginPath()
-      ctx.arc(ex + forward.x * dot * 0.34 - across.x * dot * 0.34 * side,
-        ey + forward.y * dot * 0.34 - across.y * dot * 0.34 * side, dot * 0.4, 0, Math.PI * 2)
-      ctx.fillStyle = "#ffffff"
+      ctx.arc(glint.x, glint.y, dot * 0.4, 0, Math.PI * 2)
+      ctx.fillStyle = GLINT
       ctx.fill()
     }
   }
@@ -112,8 +191,10 @@ function label(ctx, text, x, y, size, color, { bold = true, align = "center", sp
   }
 }
 
-export function boardSize(cell) {
-  return { width: COLUMNS * cell, height: ROWS * cell }
+// The versus board is a different size from the single-player one, so the two
+// dimensions are arguments with the ported constants as their defaults.
+export function boardSize(cell, columns = COLUMNS, rows = ROWS) {
+  return { width: columns * cell, height: rows * cell }
 }
 
 export function draw(ctx, view) {
@@ -1049,5 +1130,248 @@ export function drawSplash(ctx, view) {
   label(ctx, "PARTY MODE", cardWidth / 2, cardHeight / 2 + 2, 34, theme.foreground, { spacing: 5 })
   label(ctx, view.trackName, cardWidth / 2, cardHeight / 2 + 34, 15, theme.accent)
   ctx.restore()
+  ctx.globalAlpha = 1
+}
+
+// ---------------------------------------------------------------------------
+// Versus
+// ---------------------------------------------------------------------------
+
+// What a snake ran into, said plainly. A round that ends has to say why, or a
+// player who was watching the other half of the board never finds out.
+const CRASH_REASONS = {
+  wall: "into the wall",
+  self: "into itself",
+  rival: "into the other snake",
+  "head-on": "nose to nose",
+  stalemate: "neither of them blinked"
+}
+
+// Both snakes come out of the theme rather than out of a fixed pair of
+// colours, because all ten palettes have to stay readable and only the six
+// theme names are the game's to use. They share the two a single-player snake
+// already wears and swap them over.
+//
+// Colour alone will not carry it, though: in half the palettes the accent and
+// the foreground are two shades of the same blue, and two snakes a player
+// cannot tell apart at a glance is not a duel. So the second snake is round
+// where the first is square — the one difference that survives every palette,
+// and reads at twelve pixels as well as at forty. The numbered tag above each
+// head settles anything left at the start of a round, which is when nothing is
+// moving and there is time to read it.
+const versusSkin = (theme, seat) => seat === 0
+  ? { body: theme.accent, head: theme.foreground, round: false }
+  : { body: theme.foreground, head: theme.accent, round: true }
+
+// One head on its own, for the picker. It draws the block as well as the face,
+// because which shape a seat is — square or round — is half of how the two
+// snakes are told apart, and somebody choosing a face may as well be shown the
+// rest of what they are about to be.
+// The outline of one head, so a face can be clipped to it. A brow drawn to the
+// corner of the block it was given lands outside a round head, which on a
+// circle reads as whiskers rather than as a brow.
+function headPath(ctx, { x, y, size, round, radius }) {
+  ctx.beginPath()
+  if (round) ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2)
+  else ctx.roundRect(x, y, size, size, radius)
+}
+
+// A face, kept inside the head it belongs to.
+function drawHeadFace(ctx, { x, y, size, round, radius, direction, head }) {
+  ctx.save()
+  headPath(ctx, { x, y, size, round, radius })
+  ctx.clip()
+  drawFace(ctx, { x, y, size, direction, angry: false, head })
+  ctx.restore()
+}
+
+export function drawHeadPreview(ctx, { theme, seat, head, size }) {
+  const skin = versusSkin(theme, seat)
+  const block = size * 0.74
+  const offset = (size - block) / 2
+  ctx.clearRect(0, 0, size, size)
+
+  if (skin.round) {
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2, block / 2, 0, Math.PI * 2)
+    ctx.fillStyle = skin.head
+    ctx.fill()
+  } else fillRound(ctx, offset, offset, block, block, Math.max(2, block * 0.2), skin.head)
+
+  // Facing the way that seat faces at the start of a round.
+  drawHeadFace(ctx, {
+    x: offset,
+    y: offset,
+    size: block,
+    round: skin.round,
+    radius: Math.max(2, block * 0.2),
+    direction: { x: seat === 0 ? 1 : -1, y: 0 },
+    head
+  })
+}
+
+export function drawVersus(ctx, view) {
+  const { versus, theme, cell } = view
+  const colors = theme.colors
+  const { width, height } = boardSize(cell, versus.columns, versus.rows)
+
+  ctx.clearRect(0, 0, width, height)
+
+  fillRound(ctx, 0, 0, width, height, 5, theme.playArea)
+  roundRect(ctx, 0.5, 0.5, width - 1, height - 1, 5)
+  ctx.lineWidth = 1
+  ctx.strokeStyle = rgba(colors.foreground, 0.22)
+  ctx.stroke()
+
+  ctx.save()
+  roundRect(ctx, 0, 0, width, height, 5)
+  ctx.clip()
+
+  for (const wall of versus.obstacles) {
+    fillRound(ctx, wall.x * cell + 1, wall.y * cell + 1, cell - 2, cell - 2, 2, theme.muted)
+  }
+
+  const radius = Math.max(2, cell * 0.2)
+  // Tags belong to the moments when the board is not moving: at the start of a
+  // round they are wanted, and mid-round they would be two labels dragged
+  // around the board for no reason.
+  const tagged = versus.phase === "countdown" || versus.phase === "roundOver"
+
+  versus.players.forEach((player, seat) => {
+    const skin = versusSkin(theme, seat)
+    ctx.globalAlpha = player.alive ? 1 : 0.42
+    player.snake.forEach((segment, index) => {
+      const size = skin.round ? cell - 1 : cell - 2
+      const x = segment.x * cell + (cell - size) / 2
+      const y = segment.y * cell + (cell - size) / 2
+      const colour = index === 0 ? skin.head : skin.body
+      if (skin.round) {
+        ctx.beginPath()
+        ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2)
+        ctx.fillStyle = colour
+        ctx.fill()
+      } else fillRound(ctx, x, y, size, size, radius, colour)
+      if (index === 0) {
+        drawHeadFace(ctx, {
+          x, y, size, radius, round: skin.round, direction: player.direction, head: player.head
+        })
+      }
+    })
+    const head = player.snake[0]
+    if (tagged && head) {
+      label(ctx, String(seat + 1), (head.x + 0.5) * cell, head.y * cell - cell * 0.18,
+        Math.max(10, cell * 0.6), skin.head)
+    }
+    ctx.globalAlpha = 1
+
+    // The cell it was heading for, marked where it never got to. Red is the
+    // one colour outside the palette the game already uses for something being
+    // wrong, in a boss's eyes.
+    if (!player.alive && player.crashAt) {
+      const x = (player.crashAt.x + 0.5) * cell
+      const y = (player.crashAt.y + 0.5) * cell
+      const arm = cell * 0.3
+      ctx.beginPath()
+      ctx.moveTo(x - arm, y - arm)
+      ctx.lineTo(x + arm, y + arm)
+      ctx.moveTo(x + arm, y - arm)
+      ctx.lineTo(x - arm, y + arm)
+      ctx.lineWidth = Math.max(2, cell * 0.12)
+      ctx.lineCap = "round"
+      ctx.strokeStyle = "#ff4d4d"
+      ctx.stroke()
+    }
+  })
+
+  if (versus.food.x >= 0) {
+    const food = view.foods[view.foodStyleIndex % view.foods.length]
+    glyph(ctx, food.glyph, versus.food.x, versus.food.y, cell, cell * 0.85, theme.accent, food.family)
+  }
+
+  if (versus.phase !== "playing") drawVersusOverlay(ctx, view, width, height)
+
+  ctx.restore()
+}
+
+// The name of a seat as this browser should say it: two players at one
+// keyboard are "PLAYER 1" and "PLAYER 2", and two players in two rooms are
+// "YOU" and "THEM".
+export const versusName = (seat, mySeat) =>
+  mySeat === null || mySeat === undefined
+    ? `PLAYER ${seat + 1}`
+    : seat === mySeat ? "YOU" : "THEM"
+
+// Why the round ended. When both of them went the same way there is one thing
+// to say; otherwise each of the fallen says its own.
+function crashLine(versus, seat) {
+  const [first, second] = versus.players
+  if (first.reason && first.reason === second.reason) {
+    return CRASH_REASONS[first.reason] || "both at once"
+  }
+  return versus.players
+    .map((player, index) =>
+      player.alive ? null : `${versusName(index, seat)} — ${CRASH_REASONS[player.reason] || "out"}`)
+    .filter(Boolean)
+    .join("   ·   ")
+}
+
+function drawVersusOverlay(ctx, view, width, height) {
+  const { versus, theme } = view
+  const seat = view.seat
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.667)"
+  ctx.fillRect(0, 0, width, height)
+
+  let title = ""
+  let subtitle = ""
+  let note = ""
+
+  if (versus.phase === "lobby") {
+    title = "WAITING"
+    subtitle = view.lobbyNote || "for a second player"
+  } else if (versus.phase === "countdown") {
+    title = `ROUND ${versus.round}`
+    subtitle = view.hint || ""
+  } else if (versus.phase === "roundOver") {
+    const winner = versus.roundWinner
+    // "ROUND TO YOU" rather than "YOU WIN THE ROUND", because the same
+    // sentence has to work for "THEM" and for "PLAYER 2" without the verb
+    // changing under it.
+    title = winner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(winner, seat)}`
+    subtitle = crashLine(versus, seat)
+  } else if (versus.phase === "matchOver") {
+    title = `MATCH TO ${versusName(versus.matchWinner, seat)}`
+    subtitle = view.rematchNote || "Space for a rematch"
+  }
+
+  // The tally, spelled out rather than left to the strip above the board:
+  // fullscreen or not, the thing being looked at is the board.
+  if (versus.phase !== "lobby") {
+    note = `${versusName(0, seat)} ${versus.players[0].wins} — ${versus.players[1].wins} ${versusName(1, seat)}`
+  }
+
+  const lines = subtitle ? wrap(ctx, subtitle, width - 36, 13) : []
+  const counting = versus.phase === "countdown"
+  const blockHeight = 24 + (counting ? 56 : 0) + 8 + (lines.length ? lines.length * 18 : 0) + (note ? 26 : 0)
+  let y = height / 2 - blockHeight / 2 + 20
+
+  label(ctx, title, width / 2, y, 24, "white")
+  y += counting ? 62 : 30
+
+  if (counting) {
+    label(ctx, String(versus.countdownSeconds || "GO"), width / 2, y, 54, theme.accent)
+    y += 26
+  }
+
+  ctx.globalAlpha = 0.72
+  for (const line of lines) {
+    label(ctx, line, width / 2, y, 13, "white", { bold: false })
+    y += 18
+  }
+  if (note) {
+    ctx.globalAlpha = 0.9
+    y += 8
+    label(ctx, note, width / 2, y, 14, "white")
+  }
   ctx.globalAlpha = 1
 }

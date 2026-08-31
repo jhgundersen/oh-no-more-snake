@@ -6,9 +6,9 @@ Production is `https://oh-no-more-snake.com`.
 
 Oh No! More Snake is a framework-free browser port of
 [omasnake](https://github.com/jhgundersen/omasnake), the standalone Qt 6 Snake
-game for Omarchy. Static game files live in `public/`; there is no Worker code,
-no API and no build step. It follows the conventions of its sibling,
-`oh-no-more-agents`.
+game for Omarchy. Static game files live in `public/` and there is no build
+step; the Worker in `src/` exists only for the charts and for versus rooms. It
+follows the conventions of its sibling, `oh-no-more-agents`.
 
 The Qt source at `/home/jonh/jonh.no/omasnake` is the reference for behaviour.
 When the two disagree about a rule, a number, or a joke, the Qt version is
@@ -41,9 +41,19 @@ right and this one has a bug — with the deliberate exceptions listed under
   the page around the game. That division is the whole of the fullscreen
   feature — the browser renders only the fullscreen element's subtree, so
   nothing has to hide them.
+- `public/snake/Versus.js` — the two-player model: two snakes, a shared apple,
+  rounds, and the snapshot that travels between a room and a browser. It is not
+  a mode inside `Game.js` and must not become one. Like `Game.js` it imports
+  nothing from the browser, which is what lets both Node and the Worker run it.
+- `public/snake/Net.js` — the browser's end of a room: the socket, the room
+  codes, and nothing that decides anything about a match.
+- `src/room.js` — the `VersusRoom` Durable Object. One per room code, holding
+  the board and the clock both players share.
 - `public/snake/Scores.js` — posting a finished run and reading the charts back,
   including the retry queue for runs that could not be posted.
-- `src/worker.js` — the two `/api/scores` routes and D1 access.
+- `src/worker.js` — the `/api/scores` and `/api/runs` routes, D1 access, and
+  the `/api/room/` upgrade. It also re-exports `VersusRoom`, because a Durable
+  Object class has to be reachable from the Worker's entry module.
 - `src/scores.js` — validation, JSON responses, the four SQL windows, and the
   plausibility rules. It imports the game's own constants rather than keeping a
   second copy of them, which is what keeps the bounds honest when a rule changes.
@@ -52,10 +62,13 @@ right and this one has a bug — with the deliberate exceptions listed under
 - `migrations/` — ordered production migrations; never rewrite one that may
   already have been applied.
 - `test/game.test.js` — a port of `tests/tst_omasnake.cpp`, extended.
+- `test/versus.test.js` — the duel's rules: spawning, dying, and who takes a
+  round when both of them die of it at once.
 - `test/scores.test.js` — what the charts endpoint accepts and refuses.
 - `public/_headers` — cache lifetimes for what Workers Assets serves.
-- `wrangler.jsonc` — the Worker, its D1 binding, and the apex and `www` custom
-  domains. `RATE_LIMIT_SALT` is a Worker secret and is never committed.
+- `wrangler.jsonc` — the Worker, its D1 binding, the `ROOMS` Durable Object
+  binding, and the apex and `www` custom domains. `RATE_LIMIT_SALT` is a Worker
+  secret and is never committed.
 
 ## Working conventions
 
@@ -171,6 +184,10 @@ These come from the Qt version and hold here too.
   only while one might still arrive: `LEVEL_BEAT_WAIT_MS` ends the wait, and
   after `LEVEL_SKIP_AFTER_MS` any key or a tap ends it. A silent or slow track
   must never strand it.
+- The versus board is six rows taller than the single-player one, so the cell
+  floor that keeps a run readable is what pushes a duel out through the
+  controls on a short window. A small board beats a board with a button across
+  it, which is why the floor is lower while one is up.
 - The board is sized from the room its frame has left over, never by adding up
   its siblings. Anything given `max-width: var(--board-w)` must not change
   height with width, or the measurement becomes circular — which is why the
@@ -179,6 +196,57 @@ These come from the Qt version and hold here too.
   readable, and the six theme names are the only colours the game may use.
 - Buttons keep hover and active feedback and accessible names. Shortcut letters
   are shown by bolding the first letter, not with `(x)` text.
+
+## Versus invariants
+
+The duel is new here — the Qt version has no two-player mode — so these come
+from nowhere but this repository.
+
+- **The duel is its own model.** `Versus.js` is not a mode inside `Game.js` and
+  must not be folded into one. Everything a duel wants, the level machinery
+  would have to be taught to ignore; everything the level machinery does,
+  a duel does not want. Two small models beat one that is pretending.
+- **The room decides, never a browser.** Both clients render what the room
+  sends and send only the direction they would like to go. A browser that gets
+  to say who reached the apple is a browser that can say it reached the apple,
+  and its lag becomes the other player's lag. Nothing about a match may be
+  predicted locally: at 70–140 ms a step there is nothing to hide.
+- **Both spawns are the same spawn turned through half a turn**, and so is
+  every obstacle arrangement. Any layout that is not symmetric under a half
+  turn hands one of the two players the better side of the board. The spawn
+  runway is kept clear of walls for the same reason `findSpawn` exists in the
+  single-player game.
+- **Colour alone cannot tell the two snakes apart.** In half the palettes the
+  accent and the foreground are two shades of the same blue, so the second
+  snake is drawn round where the first is square. That difference has to
+  survive, whatever else changes: a duel between two snakes a player cannot
+  distinguish is not a duel. The numbered tags are a supplement, not the
+  answer — they only appear when the board is still.
+- **A face is picked before a round and never during one.** `setHead` refuses
+  while the board is moving; a snake changing expression mid-round is a thing
+  to look at during the one moment there is something else to look at. The
+  roster lives in `Versus.js` because a head travels on the wire and a room has
+  to be able to refuse one it does not recognise — how each is painted is
+  `Draw.js`'s business, exactly as a boss's roster and its portrait are kept
+  apart. Every head differs in the eyes alone: a horn or a crest is a bump at
+  the ten pixels a head actually is.
+- **A face is clipped to the head it is on.** A brow drawn to the corner of the
+  block it was given lands outside a round head and reads as whiskers.
+- **Rounds have to end.** Apples eaten speed the board up for both players and
+  every round starts quicker than the last. `STALEMATE_TICKS` is the backstop
+  for two players who never eat, and without it an online room could stay open
+  for ever.
+- **Nothing a duel does may reach the charts or a best score.** It has no score
+  to send; it has rounds. Entering one pauses the single-player run rather than
+  ending it, and the run's token keeps running — which is the same thing any
+  other pause does.
+- **A room stores nothing.** A match is worth exactly as long as its two
+  players are connected. The Durable Object holds it in memory on purpose, and
+  the sockets are accepted rather than hibernated because a hibernated object
+  has no clock to run a board on.
+- **Nothing on the wire may be trusted.** A client sends a direction and a
+  rematch and nothing else is listened to; messages are capped by size and by
+  rate, and a seat can only ever steer its own snake.
 
 ## Where the web version differs
 

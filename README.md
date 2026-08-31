@@ -40,6 +40,7 @@ the filesystem will not work.
 - `t` — cycle the theme
 - `v` — fullscreen
 - `c` — charts
+- `2` — two players; again to close the box, and while a duel is up, to leave it
 - `g` — jump to the next boss level. Local development only.
 
 Development also gets a **go to** box under the buttons and a `?level=` query
@@ -55,6 +56,51 @@ screen — for kiosks, second monitors and screenshots. It is the CSS half of
 fullscreen rather than the Fullscreen API, which refuses any request that did
 not come from a gesture and so can never be driven from a URL. `?full=0` is an
 explicit no, so the parameter can be templated in as a variable.
+
+## Two players
+
+`2` opens a duel: two snakes, one board, one apple. It is a separate mode with
+its own model, not the single-player game with a second snake in it — there are
+no levels, no bosses and no Party Mode, and the board is 32×22 rather than
+22×16 because two growing snakes meet far too soon on the smaller one.
+
+A round ends the moment somebody crashes, and the survivor takes it. Both
+snakes into the same cell nose first is nobody's round, unless one of them had
+eaten more that round, in which case it is theirs. First to three rounds takes
+the match. Every apple eaten speeds the board up for both of them, and every
+round is quicker than the last, so a duel ends.
+
+The two snakes are told apart by shape as well as colour: the first is square
+and the second is round. Half the palettes make the accent and the foreground
+two shades of the same blue, and two snakes a player cannot tell apart at a
+glance is not a duel.
+
+Each seat also picks a face before the match — wide, slit, visor, fierce,
+cyclops or sleepy. They differ in the eyes and nothing else, because a horn or
+a crest is a bump at the ten pixels a head actually is. The choice is
+remembered, and the pickers draw each face rather than naming it.
+
+**Same keyboard.** Player one steers with the arrows or `hjkl`, player two with
+`wasd`, and both faces are yours to pick.
+
+**Online.** *Create a room* gives you a link. Whoever opens it takes the other
+seat and the match starts; anyone after that watches. You take the seat the
+room gives you and with it that seat's face, and the room remembers it, so a
+rematch does not mean picking again. The room runs the game —
+it holds the board, decides who reached the apple, and sends both browsers the
+same picture to draw, which is why neither of them can disagree about it. A
+board step is 70–140 ms, comfortably longer than the trip to the room, so
+nothing is predicted locally and nothing has to be rolled back.
+
+Browser to browser was the other option and is not this one. WebRTC would still
+need a signalling server to introduce the two peers, a TURN relay for the
+connections that will not traverse a NAT, and a secure context that this page
+is not allowed to assume — and with a shared apple one of the two browsers
+still ends up refereeing, which means one of the players can cheat and their
+lag becomes the other's.
+
+Nothing about a duel reaches the charts or a best score. It has no score to
+send: it has rounds.
 
 ## How it plays
 
@@ -240,6 +286,12 @@ extended where the browser port introduced its own risks. `public/snake/Game.js`
 holds the rules and imports nothing from the browser, which is what lets Node
 run them.
 
+`test/versus.test.js` covers the two-player model the same way.
+`public/snake/Versus.js` imports nothing from the browser either, which is what
+lets the room in `src/worker.js` run the very rules the page draws rather than a
+second copy of them that drifts. Online play needs the Worker, so test it with
+`npm run dev` rather than `npm run serve`.
+
 ## Deployment
 
 Production is <https://oh-no-more-snake.com>, with `www` served the same way.
@@ -253,7 +305,8 @@ npm run deploy
 domains, and runs the Worker first for `/api/*` and the page itself — the
 latter so an http visitor is sent to https, since a page served insecurely has
 no `crypto.randomUUID` and half the web platform behaves differently. The
-charts live in D1.
+charts live in D1. Versus rooms are Durable Objects, one per room code, and
+store nothing: a match lasts exactly as long as its two players are connected.
 
 Setting it up from scratch needs the database and the hashing salt:
 
@@ -306,6 +359,19 @@ The response is the updated boards. Reusing an `eventId` is idempotent, which
 is what makes the browser's retry queue safe; reusing a `token` stores nothing,
 because a run token buys one entry. A score that could not have been reached in
 the time the token has been open comes back `422` with the reason.
+
+### `GET /api/room/{code}`
+
+A WebSocket upgrade, and nothing else — any other method gets `426`. The code is
+4 to 12 letters or digits and picks the room; the same code always reaches the
+same one, which is the whole of the matchmaking. `?wrap=0` from the first
+arrival sets the borders for the match.
+
+The room sends `welcome` (which seat, or `null` for a spectator), `seats`
+whenever somebody joins or leaves, `left` when a player drops, and `state`
+every board step, carrying the whole board with each cell as a single number.
+A client sends `{"t":"turn","dx":1,"dy":0}`, `{"t":"head","head":2}` and
+`{"t":"rematch"}`, and nothing else is listened to.
 
 ## License
 

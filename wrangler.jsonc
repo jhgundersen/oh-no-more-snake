@@ -25,6 +25,25 @@
 		"run_worker_first": ["/api/*", "/"]
 	},
 
+	// One object per room code, holding the board two players share. Nothing is
+	// written to storage — a match lasts exactly as long as its players are
+	// connected — but a class still declares which backend it would use.
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "ROOMS",
+				"class_name": "VersusRoom"
+			}
+		]
+	},
+
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["VersusRoom"]
+		}
+	],
+
 	"d1_databases": [
 		{
 			"binding": "DB",

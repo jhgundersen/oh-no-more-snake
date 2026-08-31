@@ -117,7 +117,8 @@
 		   wrap decides how much height is left for the board, and a width that
 		   depends on the board would make that circular. */
 		#head,
-		#meters {
+		#meters,
+		#versus-head {
 			width: 100%;
 			max-width: var(--board-w);
 		}
@@ -237,6 +238,188 @@
 			top: 1px;
 			text-align: center;
 			color: var(--muted);
+		}
+
+		/* A duel swaps the strip above the board rather than adding to it. The
+		   level, the best score and the clock all belong to a run, and a match
+		   has none of them. */
+		#versus-head {
+			display: none;
+			align-items: baseline;
+			justify-content: space-between;
+			gap: 12px;
+		}
+
+		body.versus #head,
+		body.versus #meters {
+			display: none;
+		}
+
+		body.versus #versus-head {
+			display: flex;
+		}
+
+		.vs-side {
+			display: flex;
+			align-items: baseline;
+			gap: 8px;
+		}
+
+		.vs-name {
+			font-size: 20px;
+			font-weight: 700;
+			letter-spacing: 0.02em;
+		}
+
+		/* The same two colours the two snakes wear, so the strip and the board
+		   agree about who is who without a legend. */
+		#vs-name-0 {
+			color: var(--accent);
+		}
+
+		#vs-name-1 {
+			color: var(--fg);
+		}
+
+		.vs-pips {
+			font-size: 13px;
+			letter-spacing: 2px;
+			color: var(--fg);
+		}
+
+		.vs-apples {
+			font-size: 12px;
+			color: var(--muted);
+		}
+
+		.vs-middle {
+			font-size: 12px;
+			font-weight: 700;
+			letter-spacing: 0.08em;
+			color: var(--muted);
+			text-align: center;
+			/* Squeezed between two names it will otherwise break "ROUND 3" over
+			   two lines and push the strip taller than the board expects. */
+			white-space: nowrap;
+		}
+
+		.versus-body {
+			display: flex;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 10px;
+			padding: 4px 16px 16px;
+		}
+
+		.heads {
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+			margin-bottom: 2px;
+		}
+
+		.heads-row {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+
+		.heads-label {
+			flex: 0 0 4.5em;
+			font-size: 12px;
+			font-weight: 700;
+			letter-spacing: 0.04em;
+		}
+
+		.heads-row:first-child .heads-label {
+			color: var(--accent);
+		}
+
+		.heads-row:last-child .heads-label {
+			color: var(--fg);
+		}
+
+		.heads-options {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+
+		/* A swatch, not a control with a word on it: the whole point is seeing
+		   the face before choosing it. */
+		.head {
+			width: 38px;
+			height: 38px;
+			padding: 0;
+			border-radius: 9px;
+			border: 1px solid transparent;
+			background: var(--play-area);
+			display: grid;
+			place-items: center;
+		}
+
+		.head:hover {
+			background: var(--combo-trough);
+		}
+
+		.head[aria-pressed="true"] {
+			border-color: var(--button-border);
+			background: var(--selection);
+		}
+
+		.head canvas {
+			display: block;
+			pointer-events: none;
+		}
+
+		.versus-hint {
+			margin: 0;
+			font-size: 11px;
+			line-height: 1.6;
+			color: var(--muted);
+		}
+
+		#versus-share {
+			display: flex;
+			gap: 8px;
+		}
+
+		#versus-share input {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		#versus-join {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			font-size: 12px;
+			color: var(--muted);
+		}
+
+		#versus-join input,
+		#versus-share input {
+			padding: 6px 8px;
+			border-radius: 8px;
+			border: 1px solid var(--muted);
+			background: var(--play-area);
+			color: var(--fg);
+			font: inherit;
+			font-size: 12px;
+		}
+
+		#versus-join input {
+			width: 8em;
+			text-align: center;
+			text-transform: lowercase;
+		}
+
+		#versus-note {
+			margin: 0;
+			font-size: 11px;
+			line-height: 1.6;
+			color: var(--accent);
+			min-height: 1.6em;
 		}
 
 		[hidden] {
@@ -519,6 +702,23 @@
 			<div id="score">SCORE 0</div>
 		</div>
 
+		<!-- The duel's own strip. It replaces the level and score line rather
+		     than sitting under it: a match has no level, no best and no clock,
+		     and two of everything else. -->
+		<div id="versus-head">
+			<div class="vs-side">
+				<span class="vs-name" id="vs-name-0">P1</span>
+				<span class="vs-pips" id="vs-pips-0"></span>
+				<span class="vs-apples" id="vs-apples-0"></span>
+			</div>
+			<div class="vs-middle" id="vs-middle">READY</div>
+			<div class="vs-side vs-right">
+				<span class="vs-apples" id="vs-apples-1"></span>
+				<span class="vs-pips" id="vs-pips-1"></span>
+				<span class="vs-name" id="vs-name-1">P2</span>
+			</div>
+		</div>
+
 		<div id="meters">
 			<div class="bar" id="level-progress"><span id="level-progress-fill"></span></div>
 			<div class="bar" id="combo" hidden><span id="combo-fill"></span></div>
@@ -535,6 +735,7 @@
 				<button type="button" id="mode"></button>
 				<button type="button" id="borders"></button>
 				<button type="button" id="food"></button>
+				<button type="button" id="versus"></button>
 				<button type="button" id="charts-open"></button>
 			</div>
 			<div class="row">
@@ -570,6 +771,41 @@
 			</div>
 			<ol id="charts-list"></ol>
 			<p id="charts-note"></p>
+		</dialog>
+
+		<!-- Inside the stage for the same reason the charts are. -->
+		<dialog id="versus-dialog" aria-labelledby="versus-title">
+			<div class="charts-head">
+				<h2 id="versus-title">TWO PLAYERS</h2>
+				<button type="button" id="versus-close" aria-label="Close two players">✕</button>
+			</div>
+			<div class="versus-body">
+				<!-- Filled by web.js, which draws each head into its own little
+				     canvas rather than describing it in words. -->
+				<div class="heads" id="versus-heads"></div>
+				<button type="button" id="versus-hotseat">Same keyboard</button>
+				<p class="versus-hint">
+					Two snakes, one apple, one board. Player one steers with the arrows,
+					player two with W A S D. First to three rounds.
+				</p>
+				<button type="button" id="versus-create">Create a room</button>
+				<p class="versus-hint">
+					Play somebody who is somewhere else. The room holds the board and
+					both of you draw it. You take the seat you are given, and with it
+					that seat's face.
+				</p>
+				<div id="versus-share" hidden>
+					<input id="versus-link" type="text" readonly aria-label="Link to the room">
+					<button type="button" id="versus-copy">Copy</button>
+				</div>
+				<form id="versus-join">
+					<label for="versus-code">or join</label>
+					<input id="versus-code" name="room" type="text" inputmode="text" autocomplete="off"
+						placeholder="code" size="9" aria-label="Room code to join">
+					<button type="submit">Join</button>
+				</form>
+				<p id="versus-note"></p>
+			</div>
 		</dialog>
 
 		<canvas id="splash" hidden></canvas>
