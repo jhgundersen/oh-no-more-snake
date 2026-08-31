@@ -478,12 +478,16 @@ game.on("statusChanged", () => {
   // silence before suspending the player.
   // The handover moves the mix between the two elements; this moves the volume
   // of both. They no longer have anything to argue about.
-  if (!game.levelTransition) {
+  // ...and none of it while two players are on the board. Entering a match
+  // pauses the run, which through here would fade the music out and tell the
+  // controller the game is over — so Party Mode would turn on and play
+  // nothing. The match owns the music while it is up.
+  if (!game.levelTransition && !twoPlayer()) {
     musicPauseDelay = 0
     musicFade.stop()
     if (game.running && !game.gameOver) {
       music.setGameActive(true)
-      musicFade.restart({ from: music.volume, to: 0.55 })
+      musicFade.restart({ from: music.volume, to: PLAYING_VOLUME })
     } else {
       musicFade.restart({ from: music.volume, to: 0 })
       musicPauseDelay = musicFade.duration
@@ -934,6 +938,21 @@ function closeVersusDialog() {
   if (versusDialog.open) versusDialog.close()
 }
 
+// A match is a game being played, whatever the paused single-player run has to
+// say about it. Without this the music controller thinks nothing is happening,
+// and `toggle()` sets a flag and plays nothing at all.
+function musicFollows(active) {
+  musicPauseDelay = 0
+  musicFade.stop()
+  if (active) {
+    music.setGameActive(true)
+    musicFade.restart({ from: music.volume, to: PLAYING_VOLUME })
+  } else {
+    musicFade.restart({ from: music.volume, to: 0 })
+    musicPauseDelay = musicFade.duration
+  }
+}
+
 function enterTwoPlayer(kind) {
   // Whatever the single-player run was doing, it is not doing it now. Saving
   // first means a run interrupted by a duel keeps its lifetime playtime.
@@ -945,6 +964,7 @@ function enterTwoPlayer(kind) {
   match = null
   inLobby = true
   document.body.classList.add("versus")
+  musicFollows(true)
   closeVersusDialog()
   resize()
   renderLobby()
@@ -964,6 +984,9 @@ function leaveTwoPlayer() {
   versusSeat = null
   chatLog.replaceChildren()
   document.body.classList.remove("versus")
+  // The run underneath is paused, so the music goes quiet the way it would
+  // have if it had never been interrupted.
+  musicFollows(false)
   renderLobby()
   resize()
   updateHud()

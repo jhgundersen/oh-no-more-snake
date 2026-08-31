@@ -1533,27 +1533,50 @@ export function laneMusic(party, source) {
 // A small cone over the head of anybody who turned Party Mode on. It is the
 // only thing on the board that says which of the two is playing which game.
 function drawPartyHat(ctx, { x, y, size, theme }) {
-  const width = size * 0.62
-  const height = size * 0.66
-  const left = x + size / 2 - width / 2
-  const tip = y - height * 0.72
+  const width = size * 0.78
+  const height = size * 1.0
+  const centre = x + size / 2
+  const brim = y + size * 0.18
+
+  ctx.save()
+  // Worn at an angle, because nobody wears one straight.
+  ctx.translate(centre, brim)
+  ctx.rotate(-0.26)
+
+  const left = -width / 2
+  const tip = -height
 
   ctx.beginPath()
-  ctx.moveTo(x + size / 2, tip)
-  ctx.lineTo(left + width, y + size * 0.16)
-  ctx.lineTo(left, y + size * 0.16)
+  ctx.moveTo(0, tip)
+  ctx.lineTo(width / 2, 0)
+  ctx.lineTo(left, 0)
   ctx.closePath()
+
+  ctx.save()
+  ctx.clip()
   ctx.fillStyle = theme.accent
-  ctx.fill()
-  ctx.lineWidth = Math.max(1, size * 0.06)
+  ctx.fillRect(left, tip, width, height)
+  // Bands across the cone. Along with the pom-pom they are what makes a
+  // triangle read as a party hat rather than as a triangle.
+  ctx.fillStyle = theme.foreground
+  for (const at of [0.38, 0.68]) {
+    ctx.fillRect(left, tip + height * at, width, Math.max(1, height * 0.13))
+  }
+  ctx.restore()
+
+  ctx.lineWidth = Math.max(0.8, size * 0.055)
   ctx.strokeStyle = INK
+  ctx.lineJoin = "round"
   ctx.stroke()
 
-  // The bobble, which is most of what makes a cone a party hat.
+  // The pom-pom, which is the rest of it.
   ctx.beginPath()
-  ctx.arc(x + size / 2, tip, Math.max(1.2, size * 0.11), 0, Math.PI * 2)
+  ctx.arc(0, tip, Math.max(1.5, size * 0.15), 0, Math.PI * 2)
   ctx.fillStyle = theme.foreground
   ctx.fill()
+  ctx.lineWidth = Math.max(0.6, size * 0.04)
+  ctx.stroke()
+  ctx.restore()
 }
 
 export function drawRace(ctx, view) {
