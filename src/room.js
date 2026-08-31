@@ -387,6 +387,10 @@ export class VersusRoom extends DurableObject {
 
     if (message.t === "rematch") {
       if (!this.match || this.match.phase !== PHASE_MATCH_OVER) return
+      // Whoever turned up while the last match was running plays this one.
+      // Without this they would keep a seat they could not use until somebody
+      // took the room back to its lobby.
+      this.match.setPresent(this.presence())
       this.match.startMatch()
       this.applySeats()
       this.lastAt = Date.now()

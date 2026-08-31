@@ -645,3 +645,14 @@ test("the four default faces are four different faces", () => {
   const heads = versus.players.map(player => player.head)
   assert.equal(new Set(heads).size, 4)
 })
+
+test("presence can be changed between matches, so a late arrival plays the next one", () => {
+  const versus = new Versus({ random: () => 0 })
+  versus.startMatch()
+  assert.equal(versus.seated.length, 2)
+
+  versus.setPresent([true, true, true, true])
+  versus.startMatch()
+  assert.equal(versus.seated.length, 4)
+  for (const player of versus.players) assert.equal(player.snake.length, 3)
+})
