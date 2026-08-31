@@ -901,10 +901,23 @@ let hotseatCount = Math.min(MAX_SEATS, Math.max(MIN_SEATS,
   Number(store.getItem("omasnake/versus/players")) || MIN_SEATS))
 let winsNeeded = Math.min(5, Math.max(1, Number(store.getItem("omasnake/versus/wins")) || 3))
 
-// One set of still effects per lane, made once. A race draws two boards with
-// the single-player renderer, and it wants two of everything that renderer
-// reads — but none of the tweens, which belong to one board being watched.
-const laneFx = SEATS.map(() => laneEffects())
+// One set of effects per lane, made once. A race draws its boards with the
+// single-player renderer, so it needs one of everything that renderer reads —
+// including the beat. The dance is the same arithmetic the single-player one
+// uses, borrowed rather than copied: it reads `this.danceHistory`, so calling
+// it on a lane dances that lane.
+const laneFx = SEATS.map(() => {
+  const lane = laneEffects()
+  lane.danceHistory = []
+  lane.danceSide = 1
+  lane.danceWave = fx.danceWave
+  lane.recordDanceBeat = fx.recordDanceBeat
+  return lane
+})
+
+// The last beat window seen on each lane, so a window that has just opened can
+// be told from one that is still open.
+const laneBeat = SEATS.map(() => 0)
 
 function remember(key, value) {
   try {
@@ -984,6 +997,7 @@ function leaveTwoPlayer() {
   versusSeat = null
   chatLog.replaceChildren()
   document.body.classList.remove("versus")
+  if (music.inBossTrack) leaveBossMusic()
   // The run underneath is paused, so the music goes quiet the way it would
   // have if it had never been interrupted.
   musicFollows(false)
@@ -1529,16 +1543,64 @@ function versusKey(event) {
 
 function advanceVersus(delta) {
   if (!match) return
-  // Online, the room is the clock. Everything here would be a second opinion
-  // about a board this browser does not own.
-  if (online()) return
+  // Online, the room is the clock. Stepping the board here would be a second
+  // opinion about one this browser does not own — but what the board looks and
+  // sounds like is this browser's business either way, and both of those read
+  // state the room has already sent.
+  if (!online()) match.step(delta)
+  pulseLanes(delta)
+  followBossMusic()
+}
 
-  match.step(delta)
-  // Bursts fade on their own clock, the way the single-player tweens do.
-  for (const lane of laneFx) {
+// A board that does not move to the music is not in a party. The single-player
+// game animates this with tweens fired by the analysis; a lane cannot, because
+// there may be four of them and only one of them is being listened to. What
+// every lane does have is `beatWindowMs`, which its own player's music opened
+// and which the room sends on — so a window that has just opened is a beat
+// that has just landed, wherever it landed.
+// A duel at the top of a set is a boss fight, and a boss fight has its own
+// music. Whoever reaches it first brings it in for everybody watching: the
+// boss is the same boss on every lane, because every lane is racing the same
+// set. It leaves when nobody is still in front of one.
+function followBossMusic() {
+  if (matchMode !== "race" || !match) {
+    if (music.inBossTrack) leaveBossMusic()
+    return
+  }
+  const fighting = match.seated.some(lane =>
+    lane.game.bossLevel && !lane.game.gameOver && lane.crashMs === 0)
+  if (fighting && !music.inBossTrack) {
+    // Alternating by round, so both boss tracks get used across a match.
+    enterBossMusic((match.round - 1) % Math.max(1, music.bossTrackCount))
+  } else if (!fighting && music.inBossTrack) leaveBossMusic()
+}
+
+function pulseLanes(delta) {
+  const cutoff = Date.now() - 2500
+  for (const seat of SEATS) {
+    const lane = laneFx[seat]
+    const player = match?.players?.[seat]
+    const window = (matchMode === "race" ? player?.game?.beatWindowMs : 0) || 0
+
+    if (window > laneBeat[seat]) {
+      lane.recordDanceBeat(0.72 + Math.min(1, window / 190) * 0.28)
+      lane.backgroundPulse = BEAT_FLASH
+      lane.foodPulse = 1
+    }
+    laneBeat[seat] = window
+
+    // The same shapes the tweens make, without a tween each.
+    if (lane.backgroundPulse > 0) lane.backgroundPulse = Math.max(0, lane.backgroundPulse * (1 - delta / 340))
+    if (lane.foodPulse > 0) lane.foodPulse = Math.max(0, lane.foodPulse * (1 - delta / 200))
     if (lane.nearMissBurst < 1) lane.nearMissBurst = Math.min(1, lane.nearMissBurst + delta / 750)
+    lane.discoPulse = fx.discoPulse
+    if (lane.danceHistory.length && lane.danceHistory[0].time < cutoff) {
+      lane.danceHistory = lane.danceHistory.filter(wave => wave.time >= cutoff)
+    }
   }
 }
+
+const BEAT_FLASH = 0.11
 
 function versusView() {
   const isOnline = online()
@@ -1558,9 +1620,16 @@ function versusView() {
     // music, and only for the seat it is sitting in: the far lane's party is
     // on, its board simply does not pulse to a beat this machine cannot hear.
     effectsFor: seat => laneFx[seat],
-    musicFor: seat => laneMusic(
-      match?.players?.[seat]?.party,
-      isOnline ? (seat === versusSeat ? music : null) : music),
+    musicFor: seat => {
+      const player = match?.players?.[seat]
+      if (!player?.party) return laneMusic(false)
+      // This browser has the analysis for the music it is playing, and for no
+      // other. Somebody else's board breathes on the beats they reported
+      // instead, which is the most this machine can honestly know about it.
+      if (!isOnline || seat === versusSeat) return laneMusic(true, music)
+      const level = Math.min(1, laneFx[seat].backgroundPulse / BEAT_FLASH)
+      return laneMusic(true, { bass: level * 0.7, mid: level * 0.5, treble: level * 0.35, leadSpectrum: [] })
+    },
     lobbyNote,
     hint: isOnline
       ? versusSeat === null ? "watching" : "arrows or W A S D"
@@ -1897,6 +1966,9 @@ function frame(now) {
   // events, and nothing that could reach a best score or the charts.
   if (twoPlayer()) {
     music.update(delta, now)
+    // Two half-second halves of one InOutSine ping-pong, evaluated rather than
+    // animated because it never stops while a disco ball is on a board.
+    fx.discoPulse = music.enabled ? 0 : (1 - Math.cos((Math.PI * (now % 840)) / 420)) / 2
     // The lobby is DOM, so there is nothing to paint while it is up — and the
     // canvas is hidden underneath it rather than drawn over.
     if (match) {
@@ -2038,7 +2110,7 @@ if (invited) joinRoom(invited)
 
 // Handy from the console, and how the screenshot tool drives the page.
 globalThis.omasnake = { game, music, fx, charts, themes, jumpTo,
-  match: () => match, mode: () => matchMode, startHotseat, joinRoom,
+  match: () => match, mode: () => matchMode, laneFx, startHotseat, joinRoom,
   leaveTwoPlayer, setTheme: id => {
   const found = themes.find(candidate => candidate.id === id)
   if (!found) return false
