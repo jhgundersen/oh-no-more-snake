@@ -120,13 +120,21 @@ export class Net {
       this.handlers.onWelcome?.(message)
       return
     }
-    if (message.t === "seats") {
-      this.handlers.onSeats?.(message)
+    if (message.t === "lobby") {
+      this.handlers.onLobby?.(message)
       return
     }
     if (message.t === "state") {
-      if (message.state) this.setStatus("playing")
-      this.handlers.onState?.(message.state)
+      this.setStatus(message.state ? "playing" : "waiting")
+      this.handlers.onState?.(message.state, message.mode)
+      return
+    }
+    if (message.t === "chat") {
+      this.handlers.onChat?.(message)
+      return
+    }
+    if (message.t === "chatlog") {
+      this.handlers.onChatLog?.(Array.isArray(message.messages) ? message.messages : [])
       return
     }
     if (message.t === "left") {
@@ -156,6 +164,26 @@ export class Net {
 
   setHead(head) {
     this.send({ t: "head", head })
+  }
+
+  setNick(nick) {
+    this.send({ t: "nick", nick })
+  }
+
+  setMode(mode) {
+    this.send({ t: "mode", mode })
+  }
+
+  setReady(ready) {
+    this.send({ t: "ready", ready })
+  }
+
+  chat(text) {
+    this.send({ t: "chat", text })
+  }
+
+  toLobby() {
+    this.send({ t: "tolobby" })
   }
 
   rematch() {

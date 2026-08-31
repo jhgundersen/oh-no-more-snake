@@ -6,17 +6,19 @@
 
 import { COLUMNS, ROWS, Game, bossNumber, levelFromName, levelName, nextBossLevel } from "./Game.js"
 import { MusicController } from "./Audio.js"
-import { draw, drawBossSplash, drawHeadPreview, drawSplash, drawVersus, boardSize, versusName } from "./Draw.js"
-import { Net, newRoomCode, roomLink, validCode } from "./Net.js"
 import {
-  HEADS,
-  PHASE_LOBBY,
-  PHASE_MATCH_OVER,
-  PHASE_PLAYING,
-  PHASE_ROUND_OVER,
-  Versus,
-  validHead
-} from "./Versus.js"
+  draw,
+  drawBossSplash,
+  drawHeadPreview,
+  drawRace,
+  drawSplash,
+  drawVersus,
+  boardSize,
+  raceLayout
+} from "./Draw.js"
+import { Net, newRoomCode, roomLink, validCode } from "./Net.js"
+import { HEADS, PHASE_MATCH_OVER, PHASE_PLAYING, Versus, validHead } from "./Versus.js"
+import { RACE_COLUMNS, RACE_ROWS, Race } from "./Race.js"
 import { FATALITIES, bossFor } from "./Bosses.js"
 import { gameOverMessages, levelMessages, partyComboName, pickDifferent } from "./Messages.js"
 import { Charts, PERIOD_LABELS, describeRun, relativeTime } from "./Scores.js"
@@ -557,7 +559,7 @@ addEventListener("keydown", event => {
   // A duel has its own keyboard: two sets of steering keys, and none of the
   // single-player switches, which would be somebody changing the rules of a
   // match somebody else is in the middle of.
-  if (versus) {
+  if (twoPlayer()) {
     if (versusKey(event.key)) event.preventDefault()
     updateHud()
     return
@@ -602,8 +604,8 @@ function pauseIfRunning() {
     setFaux(false)
     return
   }
-  if (versus) {
-    endVersus()
+  if (twoPlayer()) {
+    leaveTwoPlayer()
     return
   }
   if (game.running && !game.gameOver) game.togglePause()
@@ -621,7 +623,7 @@ canvas.addEventListener("pointermove", event => {
   const dx = event.clientX - touch.x
   const dy = event.clientY - touch.y
   if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return
-  if (versus) {
+  if (match) {
     if (Math.abs(dx) > Math.abs(dy)) steerVersus(touchSeat(), Math.sign(dx), 0)
     else steerVersus(touchSeat(), 0, Math.sign(dy))
   } else if (Math.abs(dx) > Math.abs(dy)) game.turn(Math.sign(dx), 0)
@@ -631,7 +633,7 @@ canvas.addEventListener("pointermove", event => {
 canvas.addEventListener("pointerup", () => {
   // A phone has no key to press, so a tap is how it gets on with it there.
   if (touch && !touch.steered) {
-    if (versus) versusSpace()
+    if (twoPlayer()) versusSpace()
     else if (!skipLevelTransition()) game.cycleFoodStyle(foods.length)
   }
   updateHud()
@@ -675,8 +677,8 @@ const buttons = [
     name: () => "Charts, the highest scores", act: () => openCharts() },
   // The way in and, while a duel is up, the way out. One button, because the
   // controls row decides how much height is left for the board.
-  { id: "versus", letter: "2", rest: () => (versus ? " Players: Leave" : " Players"),
-    name: () => (versus ? "Leave the duel" : "Two players, here or online"),
+  { id: "versus", letter: "2", rest: () => (twoPlayer() ? " Players: Leave" : " Players"),
+    name: () => (twoPlayer() ? "Leave two players" : "Two players, here or online"),
     act: () => openVersus() }
 ]
 
@@ -815,118 +817,79 @@ el("charts-close").addEventListener("click", closeCharts)
 
 // --- two players -------------------------------------------------------------
 
-// A duel is a different model on a different board, so while one is up the
-// single-player game is simply not running: nothing ticks it, nothing draws
-// it, and nothing it did not do can reach its best score or the charts.
-let versus = null
-// "hotseat" or "online". The difference is who ticks the board and how many
+// Two games live here. A duel puts both snakes on one board and lets them ruin
+// each other; a race gives them a board each and sends them up the levels.
+// Both models present the same handful of methods, so almost everything below
+// is written once and `matchMode` only decides which one gets built and which
+// draw call paints it.
+//
+// While either is up the single-player game is simply not running: nothing
+// ticks it, nothing draws it, and nothing it did not do can reach its best
+// score or the charts.
+let match = null
+let matchMode = "race"
+// "hotseat" or "online". The difference is who runs the board and how many
 // snakes this keyboard is steering.
 let versusKind = null
 let versusSeat = null
-let versusNote = ""
 let net = null
 let versusAccumulator = 0
+// Side by side where there is width for it, stacked where there is not.
+let raceOrientation = "side"
+
+// The lobby is what is on screen before a board is. Online it is the room's,
+// arriving as a message; at one keyboard it is built here and never leaves.
+let inLobby = false
+let lobbyState = null
+let lobbyNote = ""
 
 const versusDialog = el("versus-dialog")
 const versusNoteText = el("versus-note")
 const versusShare = el("versus-share")
 const versusLink = el("versus-link")
+const lobbyPanel = el("lobby")
+const lobbySeats = el("lobby-seats")
+const chatLog = el("chat-log")
 
-// --- picking a head ---
+const twoPlayer = () => inLobby || match !== null
+const online = () => versusKind === "online"
 
-// Which face each seat wears. Kept per seat rather than per player because
-// that is the only handle there is: online you take the seat you are given,
-// and with it that seat's face.
+// --- what each seat looks like and is called ---
+
 const headKey = seat => `omasnake/versus/head${seat}`
+const nickKey = seat => `omasnake/versus/nick${seat}`
+
 const versusHeads = [0, 1].map(seat => {
   const stored = store.getItem(headKey(seat))
   return stored === null ? (seat === 0 ? 0 : 3) : validHead(stored)
 })
+const versusNicks = [0, 1].map(seat => store.getItem(nickKey(seat)) || "")
 
-const HEAD_PREVIEW = 30
-const headsBox = el("versus-heads")
-const headOptions = [[], []]
-
-function buildHeadPickers() {
-  for (const seat of [0, 1]) {
-    const row = document.createElement("div")
-    row.className = "heads-row"
-
-    const label = document.createElement("span")
-    label.className = "heads-label"
-    label.textContent = `P${seat + 1}`
-
-    const options = document.createElement("div")
-    options.className = "heads-options"
-
-    HEADS.forEach((style, index) => {
-      const button = document.createElement("button")
-      button.type = "button"
-      button.className = "head"
-      // A canvas has nothing for a screen reader to read, so the name the
-      // roster carries is what the button is called.
-      button.setAttribute("aria-label", `Player ${seat + 1}: ${style.name}`)
-      const canvas = document.createElement("canvas")
-      button.append(canvas)
-      button.addEventListener("click", () => chooseHead(seat, index))
-      options.append(button)
-      headOptions[seat].push({ button, canvas, index })
-    })
-
-    row.append(label, options)
-    headsBox.append(row)
-  }
-}
-
-function paintHeadPickers() {
-  const ratio = Math.min(3, devicePixelRatio || 1)
-  for (const seat of [0, 1]) {
-    for (const { button, canvas, index } of headOptions[seat]) {
-      canvas.width = Math.round(HEAD_PREVIEW * ratio)
-      canvas.height = Math.round(HEAD_PREVIEW * ratio)
-      canvas.style.width = `${HEAD_PREVIEW}px`
-      canvas.style.height = `${HEAD_PREVIEW}px`
-      const context = canvas.getContext("2d")
-      context.setTransform(ratio, 0, 0, ratio, 0, 0)
-      drawHeadPreview(context, { theme, seat, head: index, size: HEAD_PREVIEW })
-      button.setAttribute("aria-pressed", String(versusHeads[seat] === index))
-    }
-  }
-}
-
-function chooseHead(seat, index) {
-  versusHeads[seat] = validHead(index)
+function remember(key, value) {
   try {
-    store.setItem(headKey(seat), versusHeads[seat])
+    store.setItem(key, value)
   } catch {
-    // A locked-down origin costs somebody their face next time, and nothing
+    // A locked-down origin costs somebody their name next time, and nothing
     // else. Not worth losing the choice they just made over.
   }
-  paintHeadPickers()
-  applyChosenHeads()
 }
 
-// Online this browser only ever speaks for its own seat; the room tells both
-// of us what the other picked.
-function applyChosenHeads() {
-  if (!versus) return
-  if (versusKind === "online") {
-    if (versusSeat !== null) net?.setHead(versusHeads[versusSeat])
-    return
-  }
-  for (const seat of [0, 1]) versus.setHead(seat, versusHeads[seat])
+// Who a seat is, said the way this browser should say it.
+const versusLabel = seat => {
+  const nick = lobbyState?.players?.[seat]?.nick
+  if (nick) return nick
+  return online() ? (seat === versusSeat ? "You" : "They") : `Player ${seat + 1}`
 }
 
-buildHeadPickers()
+// --- the doorway ---
 
 function openVersus() {
-  if (versus) {
-    endVersus()
+  if (twoPlayer()) {
+    leaveTwoPlayer()
     return
   }
   versusShare.hidden = true
   versusNoteText.textContent = ""
-  paintHeadPickers()
   if (!versusDialog.open) versusDialog.showModal()
 }
 
@@ -934,45 +897,89 @@ function closeVersusDialog() {
   if (versusDialog.open) versusDialog.close()
 }
 
-function startVersus(kind) {
+function enterTwoPlayer(kind) {
   // Whatever the single-player run was doing, it is not doing it now. Saving
   // first means a run interrupted by a duel keeps its lifetime playtime.
   if (game.running && !game.gameOver) game.togglePause()
   game.saveSettings()
 
   versusKind = kind
-  versusSeat = null
+  versusSeat = kind === "hotseat" ? null : versusSeat
   versusAccumulator = 0
-  versus = new Versus({ wrap: game.wallsWrap })
-  versus.on("roundOver", winner => announceRound(winner))
-  versus.on("matchOver", winner => announce(`${versusLabel(winner)} wins the match.`))
+  match = null
+  inLobby = true
   document.body.classList.add("versus")
   closeVersusDialog()
   resize()
+  renderLobby()
   updateHud()
 }
 
-function endVersus() {
+function leaveTwoPlayer() {
   if (net) {
     net.close()
     net = null
   }
-  versus = null
+  match = null
+  inLobby = false
+  lobbyState = null
+  lobbyNote = ""
   versusKind = null
   versusSeat = null
-  versusNote = ""
+  chatLog.replaceChildren()
   document.body.classList.remove("versus")
+  renderLobby()
   resize()
   updateHud()
   announce("Back to one player.")
 }
 
+// --- at one keyboard ---
+
 function startHotseat() {
-  startVersus("hotseat")
-  versus.startMatch()
-  applyChosenHeads()
-  announce("Two players. Player one steers with the arrows, player two with W A S D.")
+  enterTwoPlayer("hotseat")
+  lobbyState = {
+    mode: matchMode,
+    spectators: 0,
+    players: [0, 1].map(seat => ({
+      seat,
+      here: true,
+      nick: versusNicks[seat],
+      head: versusHeads[seat],
+      ready: false
+    }))
+  }
+  renderLobby()
+  announce("Two players at one keyboard. Pick a face each, then start.")
 }
+
+function startLocalMatch() {
+  match = makeMatch()
+  match.startMatch()
+  for (const seat of [0, 1]) match.setHead(seat, versusHeads[seat])
+  inLobby = false
+  renderLobby()
+  resize()
+  updateHud()
+}
+
+function makeMatch() {
+  const model = matchMode === "race"
+    ? new Race({ wrap: game.wallsWrap })
+    : new Versus({ wrap: game.wallsWrap })
+  model.on("roundOver", winner => announceRound(winner))
+  model.on("matchOver", winner => announce(`${versusLabel(winner)} wins the match.`))
+  return model
+}
+
+function announceRound(winner) {
+  if (!match) return
+  announce(winner === -1
+    ? `Round ${match.round}: nobody takes it.`
+    : `Round ${match.round} to ${versusLabel(winner)}.`)
+}
+
+// --- in a room ---
 
 function joinRoom(code) {
   const wanted = String(code || "").trim().toLowerCase()
@@ -980,39 +987,69 @@ function joinRoom(code) {
     versusNoteText.textContent = "A room code is 4 to 12 letters or digits."
     return
   }
-  startVersus("online")
-  versusNote = "connecting…"
+  enterTwoPlayer("online")
+  el("lobby-link").value = roomLink(wanted)
+  lobbyNote = "connecting…"
+
   net = new Net({
     onWelcome: message => {
       versusSeat = message.seat
-      // The room decides which seat this is, so which face to ask for is only
+      matchMode = message.mode || matchMode
+      lobbyNote = message.seat === null ? "both seats taken — you are watching" : ""
+      // The room decides which seat this is, so what to ask for is only
       // knowable once it has said.
-      applyChosenHeads()
+      if (versusSeat !== null) {
+        net.setHead(versusHeads[versusSeat])
+        if (versusNicks[versusSeat]) net.setNick(versusNicks[versusSeat])
+      }
+      renderLobby()
       updateHud()
     },
-    onSeats: message => {
-      const waiting = message.taken.filter(Boolean).length < 2
-      versusNote = waiting
-        ? `share the code — ${net.code.toUpperCase()}`
-        : versusSeat === null ? "both seats taken — watching" : ""
+    onLobby: message => {
+      lobbyState = message
+      matchMode = message.mode
+      renderLobby()
       updateHud()
     },
-    onState: state => {
-      if (state) versus.applySnapshot(state)
-      // A room with no match in it has nothing to pour in, and the board it
-      // last showed belonged to a match that has been abandoned.
-      else versus.toLobby()
+    onState: (state, mode) => {
+      matchMode = mode || matchMode
+      if (!state) {
+        // No match in the room. Whatever board was on screen belonged to one
+        // that has been abandoned, so the lobby is what is there now.
+        match = null
+        if (!inLobby) {
+          inLobby = true
+          resize()
+        }
+        renderLobby()
+        // A room with no match in it is a room back in its lobby.
+        updateHud()
+        return
+      }
+      if (!match || match.snapshot().mode !== state.mode) match = makeMatch()
+      match.applySnapshot(state)
+      if (inLobby) {
+        inLobby = false
+        renderLobby()
+        resize()
+      }
       updateHud()
+    },
+    onChat: entry => addChatLine(entry),
+    onChatLog: messages => {
+      chatLog.replaceChildren()
+      for (const entry of messages) addChatLine(entry)
     },
     onLeft: seat => {
-      versusNote = `${versusLabel(seat)} left — waiting for somebody else`
-      announce(versusNote)
-      updateHud()
+      lobbyNote = `${versusLabel(seat)} left — waiting for somebody else`
+      announce(lobbyNote)
+      renderLobby()
     },
     onStatus: status => {
-      if (status === "connecting") versusNote = "connecting…"
-      else if (status === "failed") versusNote = "could not reach the room"
-      else if (status === "dropped") versusNote = "connection lost — rejoin from 2 Players"
+      if (status === "connecting") lobbyNote = "connecting…"
+      else if (status === "failed") lobbyNote = "could not reach the room"
+      else if (status === "dropped") lobbyNote = "connection lost — rejoin from 2 Players"
+      renderLobby()
       updateHud()
     }
   })
@@ -1023,24 +1060,153 @@ function createRoom() {
   const code = newRoomCode()
   versusShare.hidden = false
   versusLink.value = roomLink(code)
-  versusNoteText.textContent = `Room ${code.toUpperCase()}. Send the link, and the first person to open it takes the other seat.`
+  versusNoteText.textContent = `Room ${code.toUpperCase()}.`
   joinRoom(code)
 }
 
-// Who a seat is, said the way this browser should say it: two people at one
-// keyboard are player one and player two, and two people in two rooms are you
-// and them.
-const versusLabel = seat =>
-  versusKind === "online" ? (seat === versusSeat ? "You" : "They") : `Player ${seat + 1}`
+// --- the lobby, drawn ---
 
-function announceRound(winner) {
-  if (!versus) return
-  announce(winner === -1
-    ? `Round ${versus.round}: nobody takes it.`
-    : `Round ${versus.round} to ${versusLabel(winner)}.`)
+// The head pickers are rebuilt with the rest of the seat, because which seat a
+// row belongs to decides both its colour and which way its faces look.
+function buildHeadOptions(seat, editable) {
+  const options = document.createElement("div")
+  options.className = "heads-options"
+  const ratio = Math.min(3, devicePixelRatio || 1)
+
+  HEADS.forEach((style, index) => {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.className = "head"
+    // A canvas has nothing for a screen reader to read, so the name the roster
+    // carries is what the button is called.
+    button.setAttribute("aria-label", style.name)
+    button.setAttribute("aria-pressed", String(versusHeads[seat] === index))
+    button.disabled = !editable
+
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(HEAD_PREVIEW * ratio)
+    canvas.height = Math.round(HEAD_PREVIEW * ratio)
+    canvas.style.width = `${HEAD_PREVIEW}px`
+    canvas.style.height = `${HEAD_PREVIEW}px`
+    const context = canvas.getContext("2d")
+    context.setTransform(ratio, 0, 0, ratio, 0, 0)
+    drawHeadPreview(context, { theme, seat, head: index, size: HEAD_PREVIEW })
+
+    button.append(canvas)
+    if (editable) button.addEventListener("click", () => chooseHead(seat, index))
+    options.append(button)
+  })
+  return options
 }
 
-// --- steering a duel ---
+const HEAD_PREVIEW = 30
+
+function chooseHead(seat, index) {
+  versusHeads[seat] = validHead(index)
+  remember(headKey(seat), versusHeads[seat])
+  if (online()) net?.setHead(versusHeads[seat])
+  else if (lobbyState) lobbyState.players[seat].head = versusHeads[seat]
+  renderLobby()
+}
+
+function chooseNick(seat, value) {
+  versusNicks[seat] = value.slice(0, 16)
+  remember(nickKey(seat), versusNicks[seat])
+  if (online()) net?.setNick(versusNicks[seat])
+  else if (lobbyState) lobbyState.players[seat].nick = versusNicks[seat]
+}
+
+function renderLobby() {
+  lobbyPanel.hidden = !inLobby
+  if (!inLobby) return
+
+  const isOnline = online()
+  el("lobby-invite").hidden = !isOnline
+  el("lobby-chat").hidden = !isOnline
+  el("lobby-note").textContent = lobbyNote
+
+  // Only the first seat picks the game, and only in a room where there is
+  // somebody else to disagree with.
+  for (const button of el("lobby-modes").querySelectorAll(".mode")) {
+    button.setAttribute("aria-pressed", String(button.dataset.mode === matchMode))
+    button.disabled = isOnline && versusSeat !== 0
+  }
+
+  const players = lobbyState?.players || [0, 1].map(seat => ({
+    seat, here: !isOnline, nick: versusNicks[seat], head: versusHeads[seat], ready: false
+  }))
+
+  lobbySeats.replaceChildren()
+  players.forEach((player, seat) => {
+    const mine = !isOnline || seat === versusSeat
+    const card = document.createElement("div")
+    card.className = `seat seat-${seat}${player.ready ? " ready" : ""}`
+
+    const top = document.createElement("div")
+    top.className = "seat-top"
+    const who = document.createElement("span")
+    who.className = "seat-who"
+    who.textContent = isOnline
+      ? (seat === versusSeat ? `P${seat + 1} — YOU` : `P${seat + 1}`)
+      : `PLAYER ${seat + 1}`
+    const state = document.createElement("span")
+    state.className = "seat-state"
+    state.textContent = !player.here ? "empty" : player.ready ? "ready" : isOnline ? "not ready" : ""
+    top.append(who, state)
+
+    card.append(top)
+
+    if (mine) {
+      const input = document.createElement("input")
+      input.type = "text"
+      input.maxLength = 16
+      input.autocomplete = "off"
+      input.placeholder = `Player ${seat + 1}`
+      input.value = versusNicks[seat]
+      input.setAttribute("aria-label", `Name for player ${seat + 1}`)
+      input.addEventListener("input", () => chooseNick(seat, input.value))
+      card.append(input)
+    } else {
+      const name = document.createElement("div")
+      name.className = "seat-name"
+      // textContent, never innerHTML: this is a name somebody else typed.
+      name.textContent = player.nick || (player.here ? `Player ${seat + 1}` : "waiting…")
+      card.append(name)
+    }
+
+    card.append(buildHeadOptions(seat, mine))
+    lobbySeats.append(card)
+  })
+
+  const ready = el("lobby-ready")
+  if (isOnline) {
+    const mine = versusSeat === null ? null : players[versusSeat]
+    ready.hidden = versusSeat === null
+    ready.textContent = mine?.ready ? "Not ready" : "Ready"
+  } else {
+    ready.hidden = false
+    ready.textContent = "Start"
+  }
+}
+
+// --- chat ---
+
+function addChatLine(entry) {
+  const line = document.createElement("li")
+  const mine = entry.seat !== null && entry.seat === versusSeat
+  if (!mine) line.className = "them"
+  const who = document.createElement("span")
+  who.className = "who"
+  // Both of these are text somebody else typed. They are set as text nodes and
+  // never as markup, which is the whole of the defence and all it needs to be.
+  who.textContent = `${entry.nick}: `
+  line.append(who, document.createTextNode(entry.text))
+  chatLog.append(line)
+  while (chatLog.childElementCount > 60) chatLog.removeChild(chatLog.firstElementChild)
+  chatLog.scrollTop = chatLog.scrollHeight
+}
+
+// --- steering ---
 
 // Arrows and vi keys are the first seat's; W A S D is the second's. Online
 // there is only one snake to steer and both sets steer it, because insisting
@@ -1053,42 +1219,54 @@ const VERSUS_SECOND = new Map([
   ["a", [-1, 0]], ["d", [1, 0]], ["w", [0, -1]], ["s", [0, 1]]
 ])
 
-// Which snake a drag on the board steers. Online it is the one this browser
-// has; at one keyboard a phone has only one pair of thumbs, so it is the first.
-const touchSeat = () => (versusKind === "online" ? versusSeat : 0)
+const touchSeat = () => (online() ? versusSeat : 0)
 
 function steerVersus(seat, dx, dy) {
-  if (seat === null || seat === undefined || !versus) return
-  if (versusKind === "online") {
+  if (seat === null || seat === undefined || !match) return
+  if (online()) {
     // The room decides whether the turn is legal, and the room's copy of the
     // board is the one that counts. Turning the local one as well would only
     // be a guess that the next frame contradicts.
     net?.turn(dx, dy)
     return
   }
-  versus.turn(seat, dx, dy)
+  match.turn(seat, dx, dy)
 }
 
-// Space starts the next match. It is the same key that restarts a single-player
-// run, which is the whole reason it is that key.
+// Space starts the next match, the same key that restarts a single-player run.
 function versusSpace() {
-  if (!versus) return
-  if (versus.phase !== PHASE_MATCH_OVER) return
-  if (versusKind === "online") net?.rematch()
-  else versus.startMatch()
+  if (inLobby) {
+    pressReady()
+    return
+  }
+  if (!match || match.phase !== PHASE_MATCH_OVER) return
+  if (online()) net?.rematch()
+  else match.startMatch()
+}
+
+function pressReady() {
+  if (!online()) {
+    startLocalMatch()
+    return
+  }
+  if (versusSeat === null) return
+  const mine = lobbyState?.players?.[versusSeat]
+  net?.setReady(!mine?.ready)
 }
 
 function versusKey(key) {
   const lower = key.length === 1 ? key.toLowerCase() : key
-  const first = VERSUS_FIRST.get(lower)
-  if (first) {
-    steerVersus(versusKind === "online" ? versusSeat : 0, first[0], first[1])
-    return true
-  }
-  const second = VERSUS_SECOND.get(lower)
-  if (second) {
-    steerVersus(versusKind === "online" ? versusSeat : 1, second[0], second[1])
-    return true
+  if (!inLobby) {
+    const first = VERSUS_FIRST.get(lower)
+    if (first) {
+      steerVersus(online() ? versusSeat : 0, first[0], first[1])
+      return true
+    }
+    const second = VERSUS_SECOND.get(lower)
+    if (second) {
+      steerVersus(online() ? versusSeat : 1, second[0], second[1])
+      return true
+    }
   }
   if (key === " ") {
     versusSpace()
@@ -1102,70 +1280,77 @@ function versusKey(key) {
   switch (lower) {
     case "t": cycleTheme(); return true
     case "v": toggleFullscreen(); return true
-    case "2": endVersus(); return true
+    case "2": leaveTwoPlayer(); return true
     default: return false
   }
 }
 
-// --- the duel's own frame ---
+// --- the two-player frame ---
 
 function advanceVersus(delta) {
-  if (!versus) return
+  if (!match) return
   // Online, the room is the clock. Everything here would be a second opinion
   // about a board this browser does not own.
-  if (versusKind === "online") return
+  if (online()) return
 
-  versus.advance(delta)
-  if (versus.phase !== PHASE_PLAYING) {
+  match.advance(delta)
+  if (match.phase !== PHASE_PLAYING) {
     versusAccumulator = 0
     return
   }
   versusAccumulator += delta
   let steps = 0
-  while (versusAccumulator >= versus.tickInterval && versus.phase === PHASE_PLAYING && steps++ < 5) {
-    versusAccumulator -= versus.tickInterval
-    versus.tick()
+  while (versusAccumulator >= match.tickInterval && match.phase === PHASE_PLAYING && steps++ < 5) {
+    versusAccumulator -= match.tickInterval
+    match.tick()
   }
 }
 
 function versusView() {
-  const online = versusKind === "online"
+  const isOnline = online()
   return {
-    versus,
+    versus: match,
+    race: match,
     theme,
     cell,
     foods,
+    orientation: raceOrientation,
     foodStyleIndex: game.foodStyleIndex,
-    seat: online ? versusSeat : null,
-    lobbyNote: versusNote || (online ? "for a second player" : ""),
-    hint: online
+    seat: isOnline ? versusSeat : null,
+    lobbyNote,
+    hint: isOnline
       ? versusSeat === null ? "watching" : "arrows or W A S D"
       : "P1 arrows   ·   P2 W A S D",
-    rematchNote: online && versusSeat === null
+    rematchNote: isOnline && versusSeat === null
       ? "waiting for a rematch"
       : "Space for a rematch"
   }
 }
 
-// --- the duel's HUD ---
+// --- the two-player HUD ---
 
 const pips = (wins, needed) => "●".repeat(wins) + "○".repeat(Math.max(0, needed - wins))
 
 function updateVersusHud() {
   const middle = el("vs-middle")
-  if (versus.phase === PHASE_LOBBY) middle.textContent = versusKind === "online" ? "WAITING" : "READY"
-  else if (versus.phase === PHASE_MATCH_OVER) middle.textContent = "MATCH OVER"
-  else middle.textContent = `ROUND ${versus.round}`
+  if (inLobby) middle.textContent = online() ? "LOBBY" : "READY?"
+  else if (!match) middle.textContent = "…"
+  else if (match.phase === PHASE_MATCH_OVER) middle.textContent = "MATCH OVER"
+  else middle.textContent = `ROUND ${match.round}`
 
   for (const seat of [0, 1]) {
-    const player = versus.players[seat]
-    el(`vs-name-${seat}`).textContent = versusKind === "online"
-      ? versusName(seat, versusSeat)
-      : `P${seat + 1}`
-    el(`vs-pips-${seat}`).textContent = pips(player.wins, versus.winsNeeded)
-    el(`vs-apples-${seat}`).textContent = player.score ? `${player.score}` : ""
+    const player = match?.players[seat]
+    el(`vs-name-${seat}`).textContent = versusLabel(seat).toUpperCase().slice(0, 12)
+    el(`vs-pips-${seat}`).textContent = match ? pips(player.wins, match.winsNeeded) : ""
+    // A duel counts apples this round; a race counts the level reached, which
+    // is the number the players are actually watching.
+    el(`vs-apples-${seat}`).textContent = !match
+      ? ""
+      : matchMode === "race" ? levelName(player.level) : (player.score || "")
   }
 }
+
+// --- wiring ---
 
 el("versus-hotseat").addEventListener("click", () => startHotseat())
 el("versus-create").addEventListener("click", () => createRoom())
@@ -1174,17 +1359,47 @@ el("versus-join").addEventListener("submit", event => {
   event.preventDefault()
   joinRoom(el("versus-code").value)
 })
+
+el("lobby-ready").addEventListener("click", () => pressReady())
+el("lobby-leave").addEventListener("click", () => leaveTwoPlayer())
+
+for (const button of el("lobby-modes").querySelectorAll(".mode")) {
+  button.addEventListener("click", () => {
+    const wanted = button.dataset.mode
+    if (online()) net?.setMode(wanted)
+    else matchMode = wanted
+    renderLobby()
+  })
+}
+
+el("chat-form").addEventListener("submit", event => {
+  event.preventDefault()
+  const input = el("chat-input")
+  const text = input.value.trim()
+  if (!text) return
+  net?.chat(text)
+  input.value = ""
+})
+
 // No `navigator.clipboard` outside a secure context, and this page is not
 // allowed to assume one. Selecting the link is what every browser can do.
-versusLink.addEventListener("focus", () => versusLink.select())
-el("versus-copy").addEventListener("click", () => {
-  versusLink.select()
+function copyLink(input, note) {
+  input.select()
   try {
-    navigator.clipboard?.writeText(versusLink.value)
+    navigator.clipboard?.writeText(input.value)
+    if (note) {
+      lobbyNote = "link copied"
+      renderLobby()
+    }
   } catch {
     // Then the link is selected, which is the fallback and always works.
   }
-})
+}
+
+versusLink.addEventListener("focus", () => versusLink.select())
+el("versus-copy").addEventListener("click", () => copyLink(versusLink, false))
+el("lobby-link").addEventListener("focus", () => el("lobby-link").select())
+el("lobby-copy").addEventListener("click", () => copyLink(el("lobby-link"), true))
 
 // --- fullscreen --------------------------------------------------------------
 
@@ -1262,8 +1477,9 @@ function applyTheme() {
   root.style.setProperty("--button-active", rgba(mixColors(theme.colors.accent, theme.colors.background, 0.16)))
   root.style.setProperty("--button-border", rgba(mixColors(theme.colors.accent, theme.colors.foreground, 0.32)))
   root.style.colorScheme = theme.dark ? "dark" : "light"
-  // The previews are drawn, not styled, so a new palette has to redraw them.
-  paintHeadPickers()
+  // The face previews are drawn, not styled, so a new palette has to redraw
+  // them — and they only exist while the lobby does.
+  renderLobby()
   updateHud()
 }
 
@@ -1276,7 +1492,7 @@ const timeText = seconds => {
 }
 
 function updateHud() {
-  if (versus) {
+  if (twoPlayer()) {
     updateVersusHud()
     updateButtons()
     return
@@ -1338,27 +1554,51 @@ function resize() {
   // Only the head and the meters follow --board-w, and neither changes height
   // with width, so one pass is normally the answer. The second is there for
   // the case where a long track name wraps the header.
-  // A duel is played on a wider board than a run is, and it is the board on
-  // screen that has to fit the frame.
-  const columns = versus ? versus.columns : COLUMNS
-  const rows = versus ? versus.rows : ROWS
+  // Three shapes of board can be on screen: a single-player one, a duel's
+  // wider one, and a race's two of the single-player size. It is whichever is
+  // there that has to fit the frame.
+  const racing = match && matchMode === "race"
+  const columns = racing ? RACE_COLUMNS : match ? match.columns : COLUMNS
+  const rows = racing ? RACE_ROWS : match ? match.rows : ROWS
+  // A duel's board is six rows taller, and a race has two boards, so on a
+  // short window the floor that keeps a single-player board readable is the
+  // thing that pushes them out through the controls. Better a small board than
+  // a board with a button across it.
+  const floor = match ? 8 : 12
 
   let previous = -1
   for (let pass = 0; pass < 2 && cell !== previous; ++pass) {
     previous = cell
     // Whole pixels per cell, so a 22-wide board never lands on a half pixel
     // and draws the snake one shade blurry.
-    const byWidth = Math.floor(frame.clientWidth / columns)
-    const byHeight = Math.floor(frame.clientHeight / rows)
-    // A duel's board is six rows taller, so on a short window the floor that
-    // keeps a single-player board readable is the thing that pushes a versus
-    // one out through the controls. Better a small board than a board with a
-    // button across it.
-    cell = Math.max(versus ? 8 : 12, Math.min(largest, Math.min(byWidth, byHeight)))
-    document.documentElement.style.setProperty("--board-w", `${columns * cell}px`)
+    let byWidth = Math.floor(frame.clientWidth / columns)
+    let byHeight = Math.floor(frame.clientHeight / rows)
+
+    if (racing) {
+      // Two boards, and a gap of one cell between them. Whichever arrangement
+      // leaves the bigger cell is the one used, which on a phone held upright
+      // means stacking them rather than shrinking them to nothing.
+      const side = Math.min(
+        Math.floor(frame.clientWidth / (columns * 2 + 1)),
+        Math.floor(frame.clientHeight / rows))
+      const stacked = Math.min(
+        Math.floor(frame.clientWidth / columns),
+        Math.floor(frame.clientHeight / (rows * 2 + 1)))
+      raceOrientation = stacked > side ? "stacked" : "side"
+      byWidth = Math.max(side, stacked)
+      byHeight = byWidth
+    }
+
+    cell = Math.max(floor, Math.min(largest, Math.min(byWidth, byHeight)))
+    const wide = racing
+      ? raceLayout(cell, columns, rows, raceOrientation).width
+      : columns * cell
+    document.documentElement.style.setProperty("--board-w", `${wide}px`)
   }
 
-  const { width, height } = boardSize(cell, columns, rows)
+  const { width, height } = racing
+    ? raceLayout(cell, columns, rows, raceOrientation)
+    : boardSize(cell, columns, rows)
   const ratio = Math.min(3, devicePixelRatio || 1)
   canvas.width = Math.round(width * ratio)
   canvas.height = Math.round(height * ratio)
@@ -1394,10 +1634,15 @@ function frame(now) {
   // A duel borrows the page, the theme and the soundtrack, and none of the
   // single-player machinery below — no bosses, no level fades, no party
   // events, and nothing that could reach a best score or the charts.
-  if (versus) {
+  if (twoPlayer()) {
     music.update(delta, now)
-    advanceVersus(delta)
-    drawVersus(ctx, versusView())
+    // The lobby is DOM, so there is nothing to paint while it is up — and the
+    // canvas is hidden underneath it rather than drawn over.
+    if (match) {
+      advanceVersus(delta)
+      if (matchMode === "race") drawRace(ctx, versusView())
+      else drawVersus(ctx, versusView())
+    }
     updateHud()
     requestAnimationFrame(frame)
     return
@@ -1501,7 +1746,7 @@ addEventListener("visibilitychange", () => {
   // A duel is not paused by looking away. Online there is somebody else still
   // playing it, and at one keyboard the other player may well be the one
   // looking at the screen.
-  if (!versus && game.running && !game.gameOver) game.togglePause()
+  if (!twoPlayer() && game.running && !game.gameOver) game.togglePause()
 })
 
 // The model's own constructor resets before anything is listening, so the
@@ -1532,7 +1777,8 @@ if (invited) joinRoom(invited)
 
 // Handy from the console, and how the screenshot tool drives the page.
 globalThis.omasnake = { game, music, fx, charts, themes, jumpTo,
-  versus: () => versus, startHotseat, joinRoom, endVersus, setTheme: id => {
+  match: () => match, mode: () => matchMode, startHotseat, joinRoom,
+  leaveTwoPlayer, setTheme: id => {
   const found = themes.find(candidate => candidate.id === id)
   if (!found) return false
   theme = resolve(found)

@@ -9,6 +9,7 @@
 
 import { COLUMNS, ROWS, levelName } from "./Game.js"
 import { HEADS } from "./Versus.js"
+import { TARGET_LEVEL } from "./Race.js"
 import { spectrumRange } from "./Audio.js"
 import { bossFor, drawPortrait } from "./Bosses.js"
 import { mixColors, parseColor, rgba } from "./Palette.js"
@@ -1373,5 +1374,196 @@ function drawVersusOverlay(ctx, view, width, height) {
     y += 8
     label(ctx, note, width / 2, y, 14, "white")
   }
+  ctx.globalAlpha = 1
+}
+
+// ---------------------------------------------------------------------------
+// Race
+// ---------------------------------------------------------------------------
+
+// The band above each board carrying who it belongs to and how far up they
+// are. It is part of the canvas rather than DOM around it because the two
+// boards move relative to each other — side by side on a wide screen, stacked
+// on a narrow one — and a caption has to go where its board went.
+const LANE_LABEL = 22
+
+// Where the two boards sit. `orientation` is decided by whichever arrangement
+// gives the bigger cell, which on a phone held upright is stacking them.
+export function raceLayout(cell, columns, rows, orientation = "side") {
+  const gap = Math.max(6, cell)
+  const boardW = columns * cell
+  const boardH = rows * cell
+  const laneH = boardH + LANE_LABEL
+
+  if (orientation === "stacked") {
+    return {
+      width: boardW,
+      height: laneH * 2 + gap,
+      boardW,
+      boardH,
+      lanes: [{ x: 0, y: 0 }, { x: 0, y: laneH + gap }]
+    }
+  }
+  return {
+    width: boardW * 2 + gap,
+    height: laneH,
+    boardW,
+    boardH,
+    lanes: [{ x: 0, y: 0 }, { x: boardW + gap, y: 0 }]
+  }
+}
+
+export function drawRace(ctx, view) {
+  const { race, theme, cell, orientation } = view
+  const colors = theme.colors
+  const layout = raceLayout(cell, race.columns, race.rows, orientation)
+  const radius = Math.max(2, cell * 0.2)
+  const seat = view.seat
+
+  ctx.clearRect(0, 0, layout.width, layout.height)
+
+  race.players.forEach((lane, index) => {
+    const spot = layout.lanes[index]
+    const top = spot.y + LANE_LABEL
+    const skin = versusSkin(theme, index)
+
+    // --- the caption ---
+
+    const name = versusName(index, seat)
+    label(ctx, name, spot.x, spot.y + 12, 12, skin.body, { align: "left" })
+    label(ctx, `LEVEL ${levelName(lane.level)}`, spot.x + layout.boardW, spot.y + 12, 12,
+      rgba(colors.foreground, 0.75), { align: "right" })
+
+    // Wins, as pips in the middle of the caption.
+    const pips = "●".repeat(lane.wins) + "○".repeat(Math.max(0, race.winsNeeded - lane.wins))
+    label(ctx, pips, spot.x + layout.boardW / 2, spot.y + 12, 11, rgba(colors.foreground, 0.6))
+
+    // --- the board ---
+
+    fillRound(ctx, spot.x, top, layout.boardW, layout.boardH, 5, theme.playArea)
+    roundRect(ctx, spot.x + 0.5, top + 0.5, layout.boardW - 1, layout.boardH - 1, 5)
+    ctx.lineWidth = 1
+    // The lane that is winning says so with its own edge.
+    const ahead = race.progressOf(index) > race.progressOf(1 - index)
+    ctx.strokeStyle = ahead ? rgba(colors.accent, 0.75) : rgba(colors.foreground, 0.22)
+    ctx.stroke()
+
+    ctx.save()
+    roundRect(ctx, spot.x, top, layout.boardW, layout.boardH, 5)
+    ctx.clip()
+    ctx.translate(spot.x, top)
+
+    for (const wall of race.obstaclesOf(index)) {
+      fillRound(ctx, wall.x * cell + 1, wall.y * cell + 1, cell - 2, cell - 2, 2, theme.muted)
+    }
+
+    if (lane.food.x >= 0) {
+      const food = view.foods[view.foodStyleIndex % view.foods.length]
+      glyph(ctx, food.glyph, lane.food.x, lane.food.y, cell, cell * 0.85, theme.accent, food.family)
+    }
+
+    ctx.globalAlpha = lane.alive ? 1 : 0.42
+    lane.snake.forEach((segment, part) => {
+      const size = skin.round ? cell - 1 : cell - 2
+      const x = segment.x * cell + (cell - size) / 2
+      const y = segment.y * cell + (cell - size) / 2
+      const colour = part === 0 ? skin.head : skin.body
+      if (skin.round) {
+        ctx.beginPath()
+        ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2)
+        ctx.fillStyle = colour
+        ctx.fill()
+      } else fillRound(ctx, x, y, size, size, radius, colour)
+      if (part === 0) {
+        drawHeadFace(ctx, {
+          x, y, size, radius, round: skin.round, direction: lane.direction, head: lane.head
+        })
+      }
+    })
+    ctx.globalAlpha = 1
+
+    if (!lane.alive && lane.crashAt) {
+      const x = (lane.crashAt.x + 0.5) * cell
+      const y = (lane.crashAt.y + 0.5) * cell
+      const arm = cell * 0.3
+      ctx.beginPath()
+      ctx.moveTo(x - arm, y - arm)
+      ctx.lineTo(x + arm, y + arm)
+      ctx.moveTo(x + arm, y - arm)
+      ctx.lineTo(x - arm, y + arm)
+      ctx.lineWidth = Math.max(2, cell * 0.12)
+      ctx.lineCap = "round"
+      ctx.strokeStyle = "#ff4d4d"
+      ctx.stroke()
+    }
+
+    // A crashed lane is about to be put back at level one, and should say so
+    // rather than simply appearing there.
+    if (lane.crashMs > 0) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
+      ctx.fillRect(0, 0, layout.boardW, layout.boardH)
+      label(ctx, "BACK TO 1.1", layout.boardW / 2, layout.boardH / 2 + 5,
+        Math.max(12, Math.min(20, layout.boardW / 14)), "#ff4d4d")
+    }
+
+    ctx.restore()
+
+    // --- how far up ---
+
+    const bar = 3
+    const y = top + layout.boardH - bar - 2
+    ctx.globalAlpha = 0.9
+    fillRound(ctx, spot.x + 3, y, layout.boardW - 6, bar, bar / 2, rgba(colors.foreground, 0.16))
+    const width = (layout.boardW - 6) * race.progressOf(index)
+    if (width > 0) fillRound(ctx, spot.x + 3, y, width, bar, bar / 2, skin.body)
+    ctx.globalAlpha = 1
+  })
+
+  if (race.phase !== "playing") drawRaceOverlay(ctx, view, layout)
+}
+
+function drawRaceOverlay(ctx, view, layout) {
+  const { race, theme } = view
+  const seat = view.seat
+  let title = ""
+  let subtitle = ""
+
+  if (race.phase === "countdown") {
+    title = `ROUND ${race.round}`
+    subtitle = view.hint || ""
+  } else if (race.phase === "roundOver") {
+    title = race.roundWinner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(race.roundWinner, seat)}`
+    subtitle = race.roundWinner === -1
+      ? "neither of them got there"
+      : `first to level ${TARGET_LEVEL}`
+  } else if (race.phase === "matchOver") {
+    title = `MATCH TO ${versusName(race.matchWinner, seat)}`
+    subtitle = view.rematchNote || "Space for a rematch"
+  } else return
+
+  const note = `${versusName(0, seat)} ${race.players[0].wins} — ${race.players[1].wins} ${versusName(1, seat)}`
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.667)"
+  ctx.fillRect(0, 0, layout.width, layout.height)
+
+  const lines = subtitle ? wrap(ctx, subtitle, layout.width - 36, 13) : []
+  const counting = race.phase === "countdown"
+  const block = 24 + (counting ? 56 : 0) + 8 + lines.length * 18 + 26
+  let y = layout.height / 2 - block / 2 + 20
+
+  label(ctx, title, layout.width / 2, y, 24, "white")
+  y += counting ? 62 : 30
+  if (counting) {
+    label(ctx, String(race.countdownSeconds || "GO"), layout.width / 2, y, 54, theme.accent)
+    y += 26
+  }
+  ctx.globalAlpha = 0.72
+  for (const line of lines) {
+    label(ctx, line, layout.width / 2, y, 13, "white", { bold: false })
+    y += 18
+  }
+  ctx.globalAlpha = 0.9
+  y += 8
+  label(ctx, note, layout.width / 2, y, 14, "white")
   ctx.globalAlpha = 1
 }

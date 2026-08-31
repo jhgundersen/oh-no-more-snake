@@ -59,48 +59,58 @@ explicit no, so the parameter can be templated in as a variable.
 
 ## Two players
 
-`2` opens a duel: two snakes, one board, one apple. It is a separate mode with
-its own model, not the single-player game with a second snake in it — there are
-no levels, no bosses and no Party Mode, and the board is 32×22 rather than
-22×16 because two growing snakes meet far too soon on the smaller one.
+`2` opens a lobby. Everyone in it picks a name and a face, the first seat picks
+the game, and a match starts when both players say they are ready — nobody is
+dropped into a countdown they were not looking at.
 
-A round ends the moment somebody crashes, and the survivor takes it. Both
-snakes into the same cell nose first is nobody's round, unless one of them had
-eaten more that round, in which case it is theirs. First to three rounds takes
-the match. Every apple eaten speeds the board up for both of them, and every
-round is quicker than the last, so a duel ends.
+There are two games.
+
+**Race** — a board each, side by side, and the first to reach level 5 takes the
+round. The levels are the single-player game's own, so a race is played on
+boards you already know; five apples clears one. Crashing costs you the level
+rather than the round: you go back to 1.1 while the other lane keeps going,
+which is the whole penalty and the whole tension. The two boards never touch —
+no shared apple, no obstacles sent across, no interference of any kind. On a
+narrow screen the boards stack instead of sitting side by side.
+
+**Duel** — one board, one apple, and a round is won by outliving the other.
+Both snakes into the same cell nose first is nobody's round, unless one of them
+had eaten more that round, in which case it is theirs. Every apple eaten speeds
+the board up for both of them.
+
+Either way it is first to three rounds.
 
 The two snakes are told apart by shape as well as colour: the first is square
 and the second is round. Half the palettes make the accent and the foreground
 two shades of the same blue, and two snakes a player cannot tell apart at a
-glance is not a duel.
+glance is not a game.
 
-Each seat also picks a face before the match — wide, slit, visor, fierce,
-cyclops or sleepy. They differ in the eyes and nothing else, because a horn or
-a crest is a bump at the ten pixels a head actually is. The choice is
-remembered, and the pickers draw each face rather than naming it.
+Each seat also picks a face — wide, slit, visor, fierce, cyclops or sleepy.
+They differ in the eyes and nothing else, because a horn or a crest is a bump
+at the ten pixels a head actually is. Names and faces are remembered.
 
 **Same keyboard.** Player one steers with the arrows or `hjkl`, player two with
-`wasd`, and both faces are yours to pick.
+`wasd`. No chat and no link, for obvious reasons.
 
-**Online.** *Create a room* gives you a link. Whoever opens it takes the other
-seat and the match starts; anyone after that watches. You take the seat the
-room gives you and with it that seat's face, and the room remembers it, so a
-rematch does not mean picking again. The room runs the game —
-it holds the board, decides who reached the apple, and sends both browsers the
-same picture to draw, which is why neither of them can disagree about it. A
-board step is 70–140 ms, comfortably longer than the trip to the room, so
-nothing is predicted locally and nothing has to be rolled back.
+**Online.** *Create a room* gives you a lobby with a link to send. Whoever
+opens it takes the other seat; anyone after that watches and can still talk.
+You take the seat the room gives you and with it that seat's name and face, and
+the room remembers both, so a rematch does not mean picking again.
+
+The room runs the game — it holds the board, decides who reached the apple, and
+sends both browsers the same picture to draw, which is why neither of them can
+disagree about it. A board step is 85–140 ms, comfortably longer than the trip
+to the room, so nothing is predicted locally and nothing has to be rolled back.
 
 Browser to browser was the other option and is not this one. WebRTC would still
 need a signalling server to introduce the two peers, a TURN relay for the
 connections that will not traverse a NAT, and a secure context that this page
-is not allowed to assume — and with a shared apple one of the two browsers
+is not allowed to assume — and with a shared board one of the two browsers
 still ends up refereeing, which means one of the players can cheat and their
 lag becomes the other's.
 
-Nothing about a duel reaches the charts or a best score. It has no score to
-send: it has rounds.
+Nothing about two players reaches the charts or a best score. There is no score
+to send: there are rounds.
 
 ## How it plays
 
@@ -286,11 +296,12 @@ extended where the browser port introduced its own risks. `public/snake/Game.js`
 holds the rules and imports nothing from the browser, which is what lets Node
 run them.
 
-`test/versus.test.js` covers the two-player model the same way.
-`public/snake/Versus.js` imports nothing from the browser either, which is what
-lets the room in `src/worker.js` run the very rules the page draws rather than a
-second copy of them that drifts. Online play needs the Worker, so test it with
-`npm run dev` rather than `npm run serve`.
+`test/versus.test.js` and `test/race.test.js` cover the two-player models the
+same way. `public/snake/Versus.js` and `public/snake/Race.js` import nothing
+from the browser either, which is what lets the room in `src/room.js` run the
+very rules the page draws rather than a second copy of them that drifts. Online
+play needs the Worker, so test it with `npm run dev` rather than `npm run
+serve`.
 
 ## Deployment
 
@@ -367,11 +378,17 @@ A WebSocket upgrade, and nothing else — any other method gets `426`. The code 
 same one, which is the whole of the matchmaking. `?wrap=0` from the first
 arrival sets the borders for the match.
 
-The room sends `welcome` (which seat, or `null` for a spectator), `seats`
-whenever somebody joins or leaves, `left` when a player drops, and `state`
-every board step, carrying the whole board with each cell as a single number.
-A client sends `{"t":"turn","dx":1,"dy":0}`, `{"t":"head","head":2}` and
-`{"t":"rematch"}`, and nothing else is listened to.
+The room sends `welcome` (which seat, or `null` for a spectator, and the mode),
+`lobby` whenever anything about who is here changes, `chatlog` once on arrival
+and `chat` per message, `left` when a player drops, and `state` every board
+step — carrying the whole board, with each cell as a single number. A race does
+not send its walls: a lane's layout is `obstacleCells` of its level, which both
+ends work out from the one number.
+
+A client sends `turn`, `nick`, `head`, `mode`, `ready`, `chat`, `rematch` and
+`tolobby`, and nothing else is listened to. `mode` is refused from anyone but
+the first seat, names and messages are stripped of control characters and
+capped, and every message is counted against a per-second budget.
 
 ## License
 

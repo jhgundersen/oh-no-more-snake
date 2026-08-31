@@ -45,10 +45,15 @@ right and this one has a bug — with the deliberate exceptions listed under
   rounds, and the snapshot that travels between a room and a browser. It is not
   a mode inside `Game.js` and must not become one. Like `Game.js` it imports
   nothing from the browser, which is what lets both Node and the Worker run it.
+- `public/snake/Race.js` — the racing model: a board each, the single-player
+  game's own levels, and the first to level 5 takes the round. It presents the
+  same handful of methods `Versus.js` does, which is what lets the room and the
+  browser drive either without knowing which they have.
 - `public/snake/Net.js` — the browser's end of a room: the socket, the room
   codes, and nothing that decides anything about a match.
 - `src/room.js` — the `VersusRoom` Durable Object. One per room code, holding
-  the board and the clock both players share.
+  the lobby, the chat, the board and the clock. It is written against the
+  interface both models share and names neither of them except to build one.
 - `public/snake/Scores.js` — posting a finished run and reading the charts back,
   including the retry queue for runs that could not be posted.
 - `src/worker.js` — the `/api/scores` and `/api/runs` routes, D1 access, and
@@ -64,6 +69,8 @@ right and this one has a bug — with the deliberate exceptions listed under
 - `test/game.test.js` — a port of `tests/tst_omasnake.cpp`, extended.
 - `test/versus.test.js` — the duel's rules: spawning, dying, and who takes a
   round when both of them die of it at once.
+- `test/race.test.js` — the race's rules: climbing the levels, and what a crash
+  costs.
 - `test/scores.test.js` — what the charts endpoint accepts and refuses.
 - `public/_headers` — cache lifetimes for what Workers Assets serves.
 - `wrangler.jsonc` — the Worker, its D1 binding, the `ROOMS` Durable Object
@@ -197,15 +204,34 @@ These come from the Qt version and hold here too.
 - Buttons keep hover and active feedback and accessible names. Shortcut letters
   are shown by bolding the first letter, not with `(x)` text.
 
-## Versus invariants
+## Two-player invariants
 
-The duel is new here — the Qt version has no two-player mode — so these come
-from nowhere but this repository.
+Two players is new here — the Qt version has no multiplayer at all — so these
+come from nowhere but this repository. There are two games: a duel on one board
+and a race on two. Both present the same interface (`phase`, `players`,
+`advance`, `tick`, `turn`, `setHead`, `startMatch`, `snapshot`,
+`applySnapshot`, `tickInterval`), and `src/room.js` and the two-player section
+of `web.js` are written against that and not against either model. Adding a
+third mode should mean adding a model, not editing those two.
 
-- **The duel is its own model.** `Versus.js` is not a mode inside `Game.js` and
-  must not be folded into one. Everything a duel wants, the level machinery
-  would have to be taught to ignore; everything the level machinery does,
-  a duel does not want. Two small models beat one that is pretending.
+- **Each game is its own model.** Neither `Versus.js` nor `Race.js` is a mode
+  inside `Game.js` and neither must be folded into one. Everything they want,
+  the level machinery would have to be taught to ignore; everything the level
+  machinery does, they do not want. Small models beat one that is pretending.
+- **A race reuses the levels rather than inventing four.** `obstacleCells` from
+  `Game.js` is what a lane is played on, so a race board is one a player already
+  knows. Reaching level 5 is the finish, which is also why a race never meets a
+  boss — the duel at the top of the set is the finishing line instead.
+- **The lanes of a race never touch.** No shared apple, no obstacles sent
+  across, no interference. The pressure is the number on the other side of the
+  screen going up, and that is deliberate: it was asked for as a pure race.
+- **A crash in a race costs the level, not the round.** The lane sits still
+  long enough to be looked at, then goes back to 1.1 while the other one keeps
+  going. A lane that crashed on the round's last step stays crashed, because
+  that is the frame the round ended on.
+- **A lobby is not a doorway.** A match starts when both seats are filled *and*
+  both players have said they are ready. Changing the mode clears readiness,
+  because changing the game is a reason to look again before starting it.
 - **The room decides, never a browser.** Both clients render what the room
   sends and send only the direction they would like to go. A browser that gets
   to say who reached the apple is a browser that can say it reached the apple,
@@ -232,10 +258,18 @@ from nowhere but this repository.
   the ten pixels a head actually is.
 - **A face is clipped to the head it is on.** A brow drawn to the corner of the
   block it was given lands outside a round head and reads as whiskers.
-- **Rounds have to end.** Apples eaten speed the board up for both players and
-  every round starts quicker than the last. `STALEMATE_TICKS` is the backstop
-  for two players who never eat, and without it an online room could stay open
-  for ever.
+- **Rounds have to end.** In a duel, apples speed the board up for both players
+  and every round starts quicker; in a race the pace follows whichever lane is
+  further ahead. `STALEMATE_TICKS` is the backstop in both, for two players who
+  never eat, and without it an online room could stay open for ever.
+- **Nothing off the wire is trusted, and nothing typed is ever markup.** Names
+  and chat are stripped of control characters and capped by the room, and put
+  on screen with `textContent` and never `innerHTML`. Both halves stay: the
+  room is what stops a newline reaching a nickname, and the browser is what
+  stops a tag reaching the page.
+- **The mode belongs to the first seat.** Somebody has to be the one deciding,
+  and a room where either player can change the game from under the other is a
+  room where neither can get ready.
 - **Nothing a duel does may reach the charts or a best score.** It has no score
   to send; it has rounds. Entering one pauses the single-player run rather than
   ending it, and the run's token keeps running — which is the same thing any

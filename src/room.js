@@ -1,5 +1,5 @@
-// A versus room: one Durable Object per match, holding the board both players
-// are looking at.
+// A versus room: one Durable Object per code, holding the lobby two players
+// meet in and then the board they play on.
 //
 // The room runs the game. Not one of the two browsers — a browser that decides
 // who reached the apple first is a browser that can decide it reached the
@@ -7,27 +7,55 @@
 // direction they want to go and draw what comes back, which is the whole
 // protocol.
 //
-// A board step is 70–140 ms, so the round trip to the room is comfortably
+// A board step is 85–140 ms, so the round trip to the room is comfortably
 // inside one and no prediction is needed to make it feel right. That is the
 // same reason browser-to-browser was not worth it: WebRTC would still need a
 // signalling server, a TURN relay for the connections that will not traverse,
 // and a secure context this page is not allowed to assume — to arrive at the
 // same place, with one of the players refereeing.
+//
+// Two games are played here. A duel puts both snakes on one board and lets
+// them ruin each other; a race gives them a board each and sends them up the
+// levels. The room does not care which: both models present the same handful
+// of methods, so everything below is written once.
 
 import { DurableObject } from "cloudflare:workers"
 
 import { PHASE_LOBBY, PHASE_MATCH_OVER, PHASE_PLAYING, Versus, validHead } from "../public/snake/Versus.js"
+import { Race } from "../public/snake/Race.js"
 
 // Enough for the people not playing to watch, and few enough that a room is
 // never a broadcast tower.
 const MAX_SPECTATORS = 8
-// A message from a client is a direction or a word. Anything longer is not one.
-const MAX_MESSAGE_BYTES = 512
+// A message from a client is a direction, a word, or something somebody typed.
+const MAX_MESSAGE_BYTES = 1024
 // Turns are queued two deep and thrown away after that, so flooding gains
 // nothing — this only stops it costing anything either.
 const MAX_MESSAGES_PER_SECOND = 40
 
+const MAX_NICK = 16
+const MAX_CHAT = 200
+// Enough for somebody arriving late to see what they walked in on, and little
+// enough that a room holds no more of anyone's words than it needs to.
+const CHAT_HISTORY = 40
+
 const SEATS = 2
+// The first is the default, because a race is the mode most people mean by
+// two players.
+const MODES = ["race", "duel"]
+
+// Names and messages are typed by people and land on another person's screen.
+// Control characters are stripped here as well as escaped there: nothing
+// downstream should have to think about a newline inside a nickname.
+const CONTROL = /[\u0000-\u001f\u007f]/g
+
+function clean(value, limit) {
+  return String(value ?? "")
+    .replace(CONTROL, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit)
+}
 
 export class VersusRoom extends DurableObject {
   constructor(ctx, env) {
@@ -37,7 +65,9 @@ export class VersusRoom extends DurableObject {
     // survive an eviction that cannot happen while a socket is open would be a
     // great deal of work to preserve something nobody would come back to.
     this.sockets = new Map()
-    this.versus = null
+    this.match = null
+    this.mode = MODES[0]
+    this.chat = []
     this.timer = null
     this.lastAt = 0
     this.accumulator = 0
@@ -61,7 +91,8 @@ export class VersusRoom extends DurableObject {
     // who chose them; everybody after that plays the room's game.
     if (!this.sockets.size) {
       this.wrap = new URL(request.url).searchParams.get("wrap") !== "0"
-      this.versus = null
+      this.match = null
+      this.chat = []
     }
 
     const pair = new WebSocketPair()
@@ -69,9 +100,16 @@ export class VersusRoom extends DurableObject {
     server.accept()
 
     const seat = [0, 1].find(candidate => !seats.includes(candidate))
-    // `head` stays null until its player says otherwise, so the model's own
-    // two default faces hold until somebody actually picks one.
-    this.sockets.set(server, { seat: seat === undefined ? null : seat, budget: 0, second: 0, head: null })
+    this.sockets.set(server, {
+      seat: seat === undefined ? null : seat,
+      nick: "",
+      // Null until its player says otherwise, so the model's own two default
+      // faces hold until somebody actually picks one.
+      head: null,
+      ready: false,
+      budget: 0,
+      second: 0
+    })
 
     server.addEventListener("message", event => this.onMessage(server, event))
     server.addEventListener("close", () => this.onGone(server))
@@ -80,10 +118,13 @@ export class VersusRoom extends DurableObject {
     this.send(server, {
       t: "welcome",
       seat: seat === undefined ? null : seat,
-      wrap: this.wrap
+      wrap: this.wrap,
+      mode: this.mode
     })
-    this.announceSeats()
-    this.startIfReady()
+    // What was said before they arrived, so a lobby is not a blank room.
+    if (this.chat.length) this.send(server, { t: "chatlog", messages: this.chat })
+    this.announceLobby()
+    this.broadcastState()
 
     return new Response(null, { status: 101, webSocket: client })
   }
@@ -96,42 +137,81 @@ export class VersusRoom extends DurableObject {
     return seats
   }
 
+  seatInfo(seat) {
+    for (const info of this.sockets.values()) if (info.seat === seat) return info
+    return null
+  }
+
   spectators() {
     let count = 0
     for (const info of this.sockets.values()) if (info.seat === null) ++count
     return count
   }
 
-  announceSeats() {
-    const taken = this.takenSeats()
+  defaultNick(seat) {
+    return seat === null ? "Watcher" : `Player ${seat + 1}`
+  }
+
+  // The lobby as everybody in the room should see it.
+  announceLobby() {
     this.broadcast({
-      t: "seats",
-      taken: [taken.includes(0), taken.includes(1)],
-      spectators: this.spectators()
+      t: "lobby",
+      mode: this.mode,
+      wrap: this.wrap,
+      spectators: this.spectators(),
+      players: [0, 1].map(seat => {
+        const info = this.seatInfo(seat)
+        return {
+          seat,
+          here: !!info,
+          nick: info?.nick || "",
+          head: info?.head,
+          ready: !!info?.ready
+        }
+      })
     })
+  }
+
+  // --- starting and stopping ---
+
+  makeMatch() {
+    return this.mode === "race" ? new Race({ wrap: this.wrap }) : new Versus({ wrap: this.wrap })
   }
 
   // Faces are remembered by the room, not by the board: a match is thrown away
   // whenever somebody leaves, and being made to pick a head again because your
   // opponent's wifi went is not a thing to be made to do.
   applyHeads() {
-    if (!this.versus) return
+    if (!this.match) return
     for (const info of this.sockets.values()) {
-      if (info.seat !== null && info.head !== null) this.versus.setHead(info.seat, info.head)
+      if (info.seat !== null && info.head !== null) this.match.setHead(info.seat, info.head)
     }
   }
 
+  // Both seats filled and both players saying so. Readiness is what makes a
+  // lobby a lobby rather than a doorway: nobody is dropped into a countdown
+  // they were not looking at.
   startIfReady() {
-    const taken = this.takenSeats()
-    if (taken.length < SEATS) return
-    if (this.versus && this.versus.phase !== PHASE_LOBBY) return
-    this.versus = new Versus({ wrap: this.wrap })
-    this.versus.startMatch()
+    const seated = [0, 1].map(seat => this.seatInfo(seat))
+    if (seated.some(info => !info || !info.ready)) return
+    if (this.match && this.match.phase !== PHASE_LOBBY) return
+    this.match = this.makeMatch()
+    this.match.startMatch()
     this.applyHeads()
     this.lastAt = Date.now()
     this.accumulator = 0
     this.broadcastState()
     this.schedule()
+  }
+
+  // Back to the lobby, with nobody ready: after a match people want to change
+  // a face or the mode more often than they want the identical match again.
+  toLobby() {
+    this.match = null
+    for (const info of this.sockets.values()) info.ready = false
+    this.stop()
+    this.broadcastState()
+    this.announceLobby()
   }
 
   onGone(socket) {
@@ -140,22 +220,23 @@ export class VersusRoom extends DurableObject {
     this.sockets.delete(socket)
 
     // A match with one player in it is not a match. Rather than freeze it and
-    // hope, the room goes back to waiting, so whoever is left can be joined by
-    // somebody else without reloading anything.
-    if (info.seat !== null && this.versus && this.versus.phase !== PHASE_LOBBY) {
-      this.versus = null
+    // hope, the room goes back to its lobby, so whoever is left can be joined
+    // by somebody else without reloading anything.
+    if (info.seat !== null && this.match) {
+      this.match = null
+      for (const other of this.sockets.values()) other.ready = false
       this.broadcast({ t: "left", seat: info.seat })
       // And say so as a board as well, or everyone still here goes on looking
       // at the last frame of a match that no longer exists.
       this.broadcastState()
     }
-    this.announceSeats()
+    this.announceLobby()
     if (!this.sockets.size) {
-      this.versus = null
+      this.match = null
+      this.chat = []
       this.stop()
       return
     }
-    this.startIfReady()
     this.schedule()
   }
 
@@ -181,32 +262,85 @@ export class VersusRoom extends DurableObject {
       return
     }
     if (!message || typeof message !== "object") return
+    this.handle(info, message)
+  }
+
+  handle(info, message) {
+    // Anybody in the room may talk, seated or not.
+    if (message.t === "chat") {
+      const text = clean(message.text, MAX_CHAT)
+      if (!text) return
+      const entry = {
+        seat: info.seat,
+        nick: info.nick || this.defaultNick(info.seat),
+        text,
+        at: Date.now()
+      }
+      this.chat.push(entry)
+      if (this.chat.length > CHAT_HISTORY) this.chat.shift()
+      this.broadcast({ t: "chat", ...entry })
+      return
+    }
+
+    // Everything below belongs to somebody with a seat.
+    if (info.seat === null) return
 
     if (message.t === "turn") {
-      if (info.seat === null || !this.versus) return
-      this.versus.turn(info.seat, Math.sign(Number(message.dx) || 0), Math.sign(Number(message.dy) || 0))
+      if (!this.match) return
+      this.match.turn(info.seat, Math.sign(Number(message.dx) || 0), Math.sign(Number(message.dy) || 0))
+      return
+    }
+
+    if (message.t === "nick") {
+      info.nick = clean(message.nick, MAX_NICK)
+      this.announceLobby()
       return
     }
 
     if (message.t === "head") {
-      if (info.seat === null) return
       info.head = validHead(message.head)
       // Refused while the board is moving, which is the model's rule and not
       // this one's — so the answer to a refusal is simply the board as it is.
-      if (this.versus) this.versus.setHead(info.seat, info.head)
+      if (this.match) this.match.setHead(info.seat, info.head)
+      this.announceLobby()
       this.broadcastState()
       return
     }
 
+    if (message.t === "mode") {
+      // Only in the lobby, and only from the first seat: the mode is one
+      // decision for the room, and somebody has to be the one making it.
+      if (this.match || info.seat !== 0) return
+      if (!MODES.includes(message.mode)) return
+      this.mode = message.mode
+      // Changing the game is a reason to look again before starting it.
+      for (const other of this.sockets.values()) other.ready = false
+      this.announceLobby()
+      return
+    }
+
+    if (message.t === "ready") {
+      if (this.match) return
+      info.ready = !!message.ready
+      this.announceLobby()
+      this.startIfReady()
+      return
+    }
+
     if (message.t === "rematch") {
-      if (info.seat === null || !this.versus) return
-      if (this.versus.phase !== PHASE_MATCH_OVER) return
-      this.versus.startMatch()
+      if (!this.match || this.match.phase !== PHASE_MATCH_OVER) return
+      this.match.startMatch()
       this.applyHeads()
       this.lastAt = Date.now()
       this.accumulator = 0
       this.broadcastState()
       this.schedule()
+      return
+    }
+
+    if (message.t === "tolobby") {
+      if (this.match && this.match.phase !== PHASE_MATCH_OVER) return
+      this.toLobby()
     }
   }
 
@@ -233,9 +367,9 @@ export class VersusRoom extends DurableObject {
   }
 
   broadcastState() {
-    this.broadcast(this.versus
-      ? { t: "state", state: this.versus.snapshot() }
-      : { t: "state", state: null })
+    this.broadcast(this.match
+      ? { t: "state", mode: this.mode, state: this.match.snapshot() }
+      : { t: "state", mode: this.mode, state: null })
   }
 
   // --- the clock ---
@@ -246,22 +380,22 @@ export class VersusRoom extends DurableObject {
   }
 
   // The next wake-up is the next thing that has to happen, rather than a fixed
-  // heartbeat: a board that is waiting for a second player, or sitting on a
-  // finished match, has nothing to do and should cost nothing to leave open.
+  // heartbeat: a lobby, or a finished match, has nothing to do and should cost
+  // nothing to leave open.
   schedule() {
     this.stop()
-    if (!this.sockets.size || !this.versus) return
-    const phase = this.versus.phase
+    if (!this.sockets.size || !this.match) return
+    const phase = this.match.phase
     if (phase === PHASE_LOBBY || phase === PHASE_MATCH_OVER) return
     const wait = phase === PHASE_PLAYING
-      ? Math.max(10, this.versus.tickInterval - this.accumulator)
+      ? Math.max(10, this.match.tickInterval - this.accumulator)
       : 100
     this.timer = setTimeout(() => this.loop(), wait)
   }
 
   loop() {
     this.timer = null
-    if (!this.versus || !this.sockets.size) return
+    if (!this.match || !this.sockets.size) return
 
     const now = Date.now()
     // A room that was starved of its timer catches up by a few steps, never by
@@ -269,13 +403,13 @@ export class VersusRoom extends DurableObject {
     const delta = Math.min(500, Math.max(0, now - this.lastAt))
     this.lastAt = now
 
-    this.versus.advance(delta)
-    if (this.versus.phase === PHASE_PLAYING) {
+    this.match.advance(delta)
+    if (this.match.phase === PHASE_PLAYING) {
       this.accumulator += delta
       let steps = 0
-      while (this.accumulator >= this.versus.tickInterval && steps++ < 5 && this.versus.phase === PHASE_PLAYING) {
-        this.accumulator -= this.versus.tickInterval
-        this.versus.tick()
+      while (this.accumulator >= this.match.tickInterval && steps++ < 5 && this.match.phase === PHASE_PLAYING) {
+        this.accumulator -= this.match.tickInterval
+        this.match.tick()
       }
     } else this.accumulator = 0
 

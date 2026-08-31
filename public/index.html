@@ -311,38 +311,291 @@
 			padding: 4px 16px 16px;
 		}
 
-		.heads {
+		/* The lobby fills the frame the board would have been in, and scrolls
+		   inside it rather than pushing the controls off a short screen. */
+		#lobby {
+			position: absolute;
+			inset: 0;
 			display: flex;
 			flex-direction: column;
-			gap: 8px;
-			margin-bottom: 2px;
+			gap: 10px;
+			padding: 12px;
+			overflow-y: auto;
+			border-radius: 8px;
+			background: var(--play-area);
+			border: 1px solid var(--combo-trough);
 		}
 
-		.heads-row {
+		.lobby-head {
 			display: flex;
 			align-items: center;
+			justify-content: space-between;
+			flex-wrap: wrap;
 			gap: 8px;
 		}
 
-		.heads-label {
-			flex: 0 0 4.5em;
+		.lobby-head h2 {
+			margin: 0;
+			font-size: 15px;
+			font-weight: 700;
+			letter-spacing: 0.08em;
+		}
+
+		.lobby-invite {
+			display: flex;
+			gap: 6px;
+			flex: 1 1 15em;
+			min-width: 0;
+			justify-content: flex-end;
+		}
+
+		.lobby-invite input {
+			flex: 1 1 auto;
+			min-width: 0;
+			max-width: 22em;
+			padding: 5px 8px;
+			border-radius: 8px;
+			border: 1px solid var(--muted);
+			background: var(--bg);
+			color: var(--fg);
+			font: inherit;
+			font-size: 11px;
+		}
+
+		.lobby-invite button {
+			height: 30px;
+			padding: 0 12px;
+			font-size: 12px;
+			border-radius: 8px;
+		}
+
+		.lobby-modes {
+			display: flex;
+			gap: 8px;
+		}
+
+		/* Two cards rather than a toggle: the difference between the games is
+		   the thing being chosen, so each says what it is. */
+		.lobby-modes .mode {
+			flex: 1 1 0;
+			height: auto;
+			min-width: 0;
+			padding: 8px 10px;
+			text-align: left;
+			display: flex;
+			flex-direction: column;
+			gap: 3px;
+			background: var(--bg);
+			border-color: var(--combo-trough);
+			color: var(--fg);
+		}
+
+		.lobby-modes .mode b {
+			font-size: 13px;
+			letter-spacing: 0.04em;
+		}
+
+		.lobby-modes .mode span {
+			font-size: 11px;
+			line-height: 1.4;
+			color: var(--muted);
+		}
+
+		.lobby-modes .mode:hover {
+			background: var(--combo-trough);
+		}
+
+		.lobby-modes .mode[aria-pressed="true"] {
+			background: var(--accent);
+			border-color: var(--button-border);
+			color: var(--bg);
+		}
+
+		.lobby-modes .mode[aria-pressed="true"] span {
+			color: var(--bg);
+			opacity: 0.8;
+		}
+
+		.lobby-modes .mode[disabled] {
+			opacity: 0.55;
+			cursor: default;
+		}
+
+		.lobby-seats {
+			display: flex;
+			gap: 8px;
+		}
+
+		.seat {
+			flex: 1 1 0;
+			min-width: 0;
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			padding: 8px 10px;
+			border-radius: 10px;
+			background: var(--bg);
+			border: 1px solid var(--combo-trough);
+		}
+
+		.seat.ready {
+			border-color: var(--accent);
+		}
+
+		.seat-top {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 8px;
+		}
+
+		.seat-who {
 			font-size: 12px;
 			font-weight: 700;
 			letter-spacing: 0.04em;
 		}
 
-		.heads-row:first-child .heads-label {
+		.seat-0 .seat-who {
 			color: var(--accent);
 		}
 
-		.heads-row:last-child .heads-label {
+		.seat-1 .seat-who {
 			color: var(--fg);
+		}
+
+		.seat-state {
+			font-size: 11px;
+			color: var(--muted);
+		}
+
+		.seat.ready .seat-state {
+			color: var(--accent);
+		}
+
+		.seat input {
+			width: 100%;
+			padding: 5px 8px;
+			border-radius: 8px;
+			border: 1px solid var(--muted);
+			background: var(--play-area);
+			color: var(--fg);
+			font: inherit;
+			font-size: 12px;
+		}
+
+		.seat .seat-name {
+			font-size: 12px;
+			padding: 5px 0;
+			color: var(--fg);
+			min-height: 1.6em;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 
 		.heads-options {
 			display: flex;
 			flex-wrap: wrap;
+			gap: 5px;
+		}
+
+		.lobby-chat {
+			flex: 1 1 auto;
+			min-height: 5em;
+			display: flex;
+			flex-direction: column;
 			gap: 6px;
+		}
+
+		#chat-log {
+			flex: 1 1 auto;
+			margin: 0;
+			padding: 6px 8px;
+			list-style: none;
+			overflow-y: auto;
+			min-height: 3.5em;
+			max-height: 11em;
+			border-radius: 8px;
+			background: var(--bg);
+			font-size: 12px;
+			line-height: 1.5;
+		}
+
+		#chat-log li {
+			overflow-wrap: anywhere;
+		}
+
+		#chat-log .who {
+			font-weight: 700;
+			color: var(--accent);
+		}
+
+		#chat-log li.them .who {
+			color: var(--fg);
+		}
+
+		#chat-log li.said {
+			color: var(--muted);
+			font-style: italic;
+		}
+
+		#chat-form {
+			display: flex;
+			gap: 6px;
+		}
+
+		#chat-form input {
+			flex: 1 1 auto;
+			min-width: 0;
+			padding: 6px 8px;
+			border-radius: 8px;
+			border: 1px solid var(--muted);
+			background: var(--bg);
+			color: var(--fg);
+			font: inherit;
+			font-size: 12px;
+		}
+
+		#chat-form button,
+		.lobby-actions button {
+			height: 32px;
+			padding: 0 14px;
+			font-size: 12px;
+			border-radius: 8px;
+		}
+
+		#lobby-note {
+			margin: 0;
+			font-size: 11px;
+			line-height: 1.5;
+			color: var(--accent);
+			min-height: 1.5em;
+		}
+
+		.lobby-actions {
+			display: flex;
+			gap: 8px;
+			justify-content: flex-end;
+		}
+
+		#lobby-leave {
+			background: transparent;
+			border-color: var(--muted);
+			color: var(--muted);
+		}
+
+		#lobby-leave:hover {
+			background: var(--combo-trough);
+			color: var(--fg);
+		}
+
+		/* Side by side is the shape of the lobby, but two of everything needs
+		   room. On a narrow screen each pair stacks instead. */
+		@media (max-width: 560px) {
+			.lobby-modes,
+			.lobby-seats {
+				flex-direction: column;
+			}
 		}
 
 		/* A swatch, not a control with a word on it: the whole point is seeing
@@ -728,6 +981,48 @@
 
 		<div id="board-frame">
 			<canvas id="board" width="440" height="320" aria-label="Snake board"></canvas>
+
+			<!-- Where two players meet before there is a board to look at. It sits
+			     inside the frame rather than over the page so that fullscreen and
+			     the board measurement both keep working unchanged. -->
+			<div id="lobby" hidden>
+				<div class="lobby-head">
+					<h2>TWO PLAYERS</h2>
+					<div class="lobby-invite" id="lobby-invite">
+						<input id="lobby-link" type="text" readonly aria-label="Link to this room">
+						<button type="button" id="lobby-copy">Copy</button>
+					</div>
+				</div>
+
+				<div class="lobby-modes" id="lobby-modes" role="group" aria-label="Game">
+					<button type="button" class="mode" data-mode="race">
+						<b>Race</b><span>A board each. First to level 5 takes the round.</span>
+					</button>
+					<button type="button" class="mode" data-mode="duel">
+						<b>Duel</b><span>One board, one apple. Outlive them.</span>
+					</button>
+				</div>
+
+				<!-- Both seats, built by web.js because each carries a row of drawn
+				     faces rather than a list of words. -->
+				<div class="lobby-seats" id="lobby-seats"></div>
+
+				<div class="lobby-chat" id="lobby-chat">
+					<ol id="chat-log" aria-live="polite" aria-label="Chat"></ol>
+					<form id="chat-form">
+						<input id="chat-input" type="text" maxlength="200" autocomplete="off"
+							placeholder="say something" aria-label="Chat message">
+						<button type="submit">Send</button>
+					</form>
+				</div>
+
+				<p id="lobby-note"></p>
+
+				<div class="lobby-actions">
+					<button type="button" id="lobby-ready">Ready</button>
+					<button type="button" id="lobby-leave">Leave</button>
+				</div>
+			</div>
 		</div>
 
 		<div id="controls">
@@ -780,19 +1075,15 @@
 				<button type="button" id="versus-close" aria-label="Close two players">✕</button>
 			</div>
 			<div class="versus-body">
-				<!-- Filled by web.js, which draws each head into its own little
-				     canvas rather than describing it in words. -->
-				<div class="heads" id="versus-heads"></div>
 				<button type="button" id="versus-hotseat">Same keyboard</button>
 				<p class="versus-hint">
-					Two snakes, one apple, one board. Player one steers with the arrows,
-					player two with W A S D. First to three rounds.
+					Both players here, on one keyboard. Player one steers with the
+					arrows, player two with W A S D.
 				</p>
 				<button type="button" id="versus-create">Create a room</button>
 				<p class="versus-hint">
-					Play somebody who is somewhere else. The room holds the board and
-					both of you draw it. You take the seat you are given, and with it
-					that seat's face.
+					Play somebody who is somewhere else. You get a lobby with a link to
+					send them, and pick a name, a face and the game in there.
 				</p>
 				<div id="versus-share" hidden>
 					<input id="versus-link" type="text" readonly aria-label="Link to the room">
