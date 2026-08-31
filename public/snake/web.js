@@ -523,7 +523,12 @@ music.on("strongBeat", strength => {
   // beat is taken on trust, and is why it can only ever open a window on the
   // lane of the seat that sent it.
   if (twoPlayer()) {
-    reportBeat(strength)
+    if (matchMode === "race") reportBeat(strength)
+    else {
+      duelFx.recordDanceBeat(strength)
+      duelFx.backgroundPulse = BEAT_FLASH
+      duelFx.foodPulse = 1
+    }
     return
   }
   game.registerStrongBeat(strength)
@@ -879,6 +884,12 @@ const versusNoteText = el("versus-note")
 const versusShare = el("versus-share")
 const versusLink = el("versus-link")
 const lobbyPanel = el("lobby")
+const playChat = el("playchat")
+const chatToggle = el("chat-toggle")
+// The chat is one element that lives in the lobby or beside the board. Moving
+// it rather than keeping two of them is what stops the log ever forking.
+let sideChatOpen = false
+let unreadChat = false
 const lobbySeats = el("lobby-seats")
 const chatLog = el("chat-log")
 
@@ -901,8 +912,6 @@ const versusHeads = SEATS.map(seat => {
   return stored === null ? DEFAULT_HEADS[seat % DEFAULT_HEADS.length] : validHead(stored)
 })
 const versusNicks = SEATS.map(seat => store.getItem(nickKey(seat)) || "")
-const partyKey = seat => `omasnake/versus/party${seat}`
-const versusParty = SEATS.map(seat => store.getItem(partyKey(seat)) === "true")
 // How many players are at this keyboard, and how many rounds the match is.
 let hotseatCount = Math.min(MAX_SEATS, Math.max(MIN_SEATS,
   Number(store.getItem("omasnake/versus/players")) || MIN_SEATS))
@@ -925,6 +934,17 @@ const laneFx = SEATS.map(() => {
 // The last beat window seen on each lane, so a window that has just opened can
 // be told from one that is still open.
 const laneBeat = SEATS.map(() => 0)
+
+// A duel is one board with no Party Mode of its own, so its beat comes straight
+// from whatever this browser is playing rather than from any lane.
+const duelFx = (() => {
+  const own = laneEffects()
+  own.danceHistory = []
+  own.danceSide = 1
+  own.danceWave = fx.danceWave
+  own.recordDanceBeat = fx.recordDanceBeat
+  return own
+})()
 
 function remember(key, value) {
   try {
@@ -1003,6 +1023,8 @@ function leaveTwoPlayer() {
   versusKind = null
   versusSeat = null
   chatLog.replaceChildren()
+  sideChatOpen = false
+  unreadChat = false
   document.body.classList.remove("versus")
   if (music.inBossTrack) leaveBossMusic()
   // The run underneath is paused, so the music goes quiet the way it would
@@ -1026,7 +1048,6 @@ function startHotseat() {
       here: seat < hotseatCount,
       nick: versusNicks[seat],
       head: versusHeads[seat],
-      party: versusParty[seat],
       ready: false
     }))
   }
@@ -1038,12 +1059,10 @@ function startLocalMatch() {
   match = makeMatch()
   match.setPresent(localPresence())
   match.startMatch()
-  for (const seat of SEATS) {
-    match.setHead(seat, versusHeads[seat])
-    match.setParty?.(seat, versusParty[seat])
-  }
+  for (const seat of SEATS) match.setHead(seat, versusHeads[seat])
   inLobby = false
   renderLobby()
+  placeChat()
   resize()
   updateHud()
 }
@@ -1060,6 +1079,15 @@ function makeMatch() {
   // A bonus nobody sees is a bonus nobody plays for, and a lane has no tweens
   // of its own, so the burst is set here and decayed by the frame loop.
   model.on("bonus", (seat, name, points) => showLaneBonus(seat, `+${points} ${name}`))
+  // The party is already on; what a disco ball offers here is the music, and
+  // only the browser in front of that player can start it. Online that is this
+  // browser's own lane; at one keyboard there is one pair of speakers and
+  // whoever reaches a ball speaks for all of them.
+  model.on("discoBall", (seat, x, y) => {
+    showLaneBonus(seat, "MUSIC")
+    if (online() && seat !== versusSeat) return
+    if (!music.enabled) music.toggle()
+  })
   return model
 }
 
@@ -1105,7 +1133,6 @@ function joinRoom(code) {
       // knowable once it has said.
       if (versusSeat !== null) {
         net.setHead(versusHeads[versusSeat])
-        net.setParty(versusParty[versusSeat])
         if (versusSeat === 0) net.setWins(winsNeeded)
         if (versusNicks[versusSeat]) net.setNick(versusNicks[versusSeat])
       }
@@ -1144,6 +1171,7 @@ function joinRoom(code) {
       if (inLobby) {
         inLobby = false
         renderLobby()
+        placeChat()
         resize()
       }
       updateHud()
@@ -1236,12 +1264,10 @@ function buildLobby() {
     const name = document.createElement("div")
     name.className = "seat-name"
 
-    // Party Mode is per player here, which it has never been anywhere else in
-    // this game: it changes what scores on that board and nothing on the other.
-    const party = document.createElement("button")
-    party.type = "button"
+    // A label rather than a control: Party Mode is simply how a race is
+    // played, and there is nothing to decide about it.
+    const party = document.createElement("span")
     party.className = "seat-party"
-    party.addEventListener("click", () => chooseParty(seat, !versusParty[seat]))
 
     // Which keys this seat steers with, which is worth saying once where the
     // player is choosing their name rather than nowhere at all.
@@ -1301,18 +1327,6 @@ function chooseHead(seat, index) {
 // message per keystroke. The name is kept here at once and told to the room
 // once the typing stops.
 let nickTimer = 0
-function chooseParty(seat, on) {
-  versusParty[seat] = !!on
-  remember(partyKey(seat), versusParty[seat])
-  // Party Mode has meant music since the desktop version, and a party with no
-  // music is most of the point missing. The click that asked for it is the
-  // gesture playback needs, so this is the one moment it can be started from.
-  if (versusParty[seat] && !music.enabled) music.toggle()
-  if (online()) net?.setParty(versusParty[seat])
-  else if (lobbyState?.players?.[seat]) lobbyState.players[seat].party = versusParty[seat]
-  renderLobby()
-}
-
 function chooseWins(count) {
   winsNeeded = Math.min(5, Math.max(1, count))
   remember("omasnake/versus/wins", winsNeeded)
@@ -1329,7 +1343,6 @@ function choosePlayers(count) {
       here: seat < hotseatCount,
       nick: versusNicks[seat],
       head: versusHeads[seat],
-      party: versusParty[seat],
       ready: false
     }))
   }
@@ -1347,6 +1360,7 @@ function chooseNick(seat, value) {
 
 function renderLobby() {
   lobbyPanel.hidden = !inLobby
+  placeChat()
   if (!inLobby) return
 
   const isOnline = online()
@@ -1366,7 +1380,6 @@ function renderLobby() {
     here: !isOnline && seat < hotseatCount,
     nick: versusNicks[seat],
     head: versusHeads[seat],
-    party: versusParty[seat],
     ready: false
   }))
 
@@ -1413,11 +1426,8 @@ function renderLobby() {
     })
 
     // Only a race has one. A duel is the same game for all of them.
-    const partyOn = mine ? versusParty[seat] : !!player.party
     nodes.party.hidden = matchMode !== "race" || !player.here
-    nodes.party.disabled = !mine
-    nodes.party.setAttribute("aria-pressed", String(partyOn))
-    nodes.party.textContent = partyOn ? "🎉 Party Mode on" : "Party Mode off"
+    nodes.party.textContent = "🎉 Party Mode, with the combos"
   })
 
   const ready = el("lobby-ready")
@@ -1440,7 +1450,41 @@ buildLobby()
 
 // --- chat ---
 
+// Wherever the chat should be right now. In the lobby it is part of it; during
+// a match it is a panel beside the board, which the board is measured around
+// rather than covered by.
+function placeChat() {
+  const chat = el("lobby-chat")
+  const wanted = inLobby ? lobbyPanel : (online() && sideChatOpen ? playChat : null)
+
+  chat.hidden = !online()
+  if (wanted && chat.parentElement !== wanted) {
+    if (wanted === lobbyPanel) lobbyPanel.insertBefore(chat, el("lobby-note"))
+    else wanted.append(chat)
+  }
+  const showPanel = wanted === playChat
+  if (playChat.hidden === showPanel) {
+    playChat.hidden = !showPanel
+    resize()
+  }
+  chatToggle.hidden = inLobby || !online() || !match
+  chatToggle.setAttribute("aria-pressed", String(sideChatOpen))
+  chatToggle.classList.toggle("unread", unreadChat && !sideChatOpen)
+  chatToggle.textContent = unreadChat && !sideChatOpen ? "💬•" : "💬"
+}
+
+function toggleSideChat(open = !sideChatOpen) {
+  sideChatOpen = open
+  if (open) unreadChat = false
+  placeChat()
+  if (open) el("chat-input").focus()
+}
+
 function addChatLine(entry) {
+  if (!inLobby && !sideChatOpen) {
+    unreadChat = true
+    placeChat()
+  }
   const line = document.createElement("li")
   const mine = entry.seat !== null && entry.seat === versusSeat
   if (!mine) line.className = "them"
@@ -1534,6 +1578,10 @@ function versusKey(event) {
       return true
     }
   }
+  if (key === "Enter") {
+    if (online() && match) toggleSideChat(true)
+    return true
+  }
   if (key === " ") {
     versusSpace()
     return true
@@ -1594,6 +1642,13 @@ function followBossMusic() {
 
 function pulseLanes(delta) {
   const cutoff = Date.now() - 2500
+
+  // The duel's own board, on this browser's own music.
+  if (duelFx.backgroundPulse > 0) duelFx.backgroundPulse = Math.max(0, duelFx.backgroundPulse * (1 - delta / 340))
+  if (duelFx.foodPulse > 0) duelFx.foodPulse = Math.max(0, duelFx.foodPulse * (1 - delta / 200))
+  if (duelFx.danceHistory.length && duelFx.danceHistory[0].time < cutoff) {
+    duelFx.danceHistory = duelFx.danceHistory.filter(wave => wave.time >= cutoff)
+  }
   for (const seat of SEATS) {
     const lane = laneFx[seat]
     const player = match?.players?.[seat]
@@ -1629,6 +1684,10 @@ function versusView() {
     foods,
     fatalities: FATALITIES,
     across: raceAcross,
+    // What a duel draws with: one board, this browser's music, one set of
+    // animation values.
+    music,
+    fx: duelFx,
     names: SEATS.map(seat => lobbyState?.players?.[seat]?.nick || ""),
     foodStyleIndex: game.foodStyleIndex,
     seat: isOnline ? versusSeat : null,
@@ -1638,8 +1697,7 @@ function versusView() {
     // on, its board simply does not pulse to a beat this machine cannot hear.
     effectsFor: seat => laneFx[seat],
     musicFor: seat => {
-      const player = match?.players?.[seat]
-      if (!player?.party) return laneMusic(false)
+      if (matchMode !== "race" || !match?.players?.[seat]?.present) return laneMusic(false)
       // This browser has the analysis for the music it is playing, and for no
       // other. Somebody else's board breathes on the beats they reported
       // instead, which is the most this machine can honestly know about it.
@@ -1697,7 +1755,7 @@ function updateVersusHud() {
     // A duel counts apples this round; a race counts the level reached, which
     // is the number its players are actually watching.
     chip.children[2].textContent = matchMode === "race"
-      ? `${levelName(player.game.displayedLevel)}${player.party ? " 🎉" : ""}`
+      ? levelName(player.game.displayedLevel)
       : (player.score || "")
   })
 }
@@ -1713,6 +1771,14 @@ el("versus-join").addEventListener("submit", event => {
 })
 
 el("lobby-ready").addEventListener("click", () => pressReady())
+chatToggle.addEventListener("click", () => toggleSideChat())
+// Escape gets you back to the board without leaving the game.
+el("chat-input").addEventListener("keydown", event => {
+  if (event.key !== "Escape") return
+  event.stopPropagation()
+  el("chat-input").blur()
+  toggleSideChat(false)
+})
 el("lobby-leave").addEventListener("click", () => leaveTwoPlayer())
 
 for (const button of el("lobby-modes").querySelectorAll(".mode")) {
@@ -1899,6 +1965,16 @@ function resize() {
   // so measuring the frame asks the layout what is left instead of adding up
   // siblings. Fullscreen needs no special case for the same reason.
   const frame = el("board-frame")
+  // The chat panel sits inside the frame, so what is left for the board is the
+  // frame less the panel — beside it where there is width for that, and under
+  // it where there is not, because a board squeezed to nothing is worse than a
+  // shorter one.
+  const below = frame.clientWidth < 520
+  playChat.classList.toggle("below", below)
+  const chatWidth = playChat.hidden || below ? 0 : playChat.offsetWidth + 10
+  const chatHeight = playChat.hidden || !below ? 0 : playChat.offsetHeight + 10
+  const roomWidth = Math.max(80, frame.clientWidth - chatWidth)
+  const roomHeight = Math.max(80, frame.clientHeight - chatHeight)
   // A big monitor does not want a board the size of a wall — 40 keeps it
   // inside the 900px column the rest of the page lives in. A screen given over
   // entirely to the game may as well use it.
@@ -1924,14 +2000,14 @@ function resize() {
     previous = cell
     // Whole pixels per cell, so a 22-wide board never lands on a half pixel
     // and draws the snake one shade blurry.
-    let byWidth = Math.floor(frame.clientWidth / columns)
-    let byHeight = Math.floor(frame.clientHeight / rows)
+    let byWidth = Math.floor(roomWidth / columns)
+    let byHeight = Math.floor(roomHeight / rows)
 
     if (racing) {
       // Two to four boards with a gap of a cell between them. Every way of
       // splitting them across rows is tried and the roomiest wins, which on a
       // phone held upright is one board per row rather than four squints.
-      const fit = raceFit(match.seated.length, frame.clientWidth, frame.clientHeight, columns, rows)
+      const fit = raceFit(match.seated.length, roomWidth, roomHeight, columns, rows)
       raceAcross = fit.across
       byWidth = fit.cell
       byHeight = fit.cell
@@ -1952,6 +2028,10 @@ function resize() {
   canvas.height = Math.round(height * ratio)
   canvas.style.width = `${width}px`
   canvas.style.height = `${height}px`
+  // Centred in what is left rather than in the whole frame, or the panel sits
+  // on top of the board it was supposed to make room for.
+  canvas.style.left = `calc(50% - ${chatWidth / 2}px)`
+  canvas.style.top = `calc(50% - ${chatHeight / 2}px)`
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
 
   splashCanvas.width = Math.round(innerWidth * ratio)

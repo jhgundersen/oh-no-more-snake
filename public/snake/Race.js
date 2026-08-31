@@ -79,7 +79,6 @@ function makeLane(seat, wrap) {
     // Four faces as far apart as the roster allows, so a race nobody chose
     // anything for still has snakes that can be told apart.
     head: DEFAULT_HEADS[seat % DEFAULT_HEADS.length],
-    party: false,
     wins: 0,
     crashMs: 0,
     crashes: 0,
@@ -141,13 +140,9 @@ export class Race {
       lane.prepared = false
       this.emit("levelCleared", seat)
     })
-    // The disco ball is the offer of a party, here as much as in a run: taking
-    // it turns Party Mode on for that lane and nobody else's.
-    lane.game.on("discoBallEaten", () => {
-      lane.party = true
-      lane.game.setPartyMode(true)
-      this.emit("partyStarted", seat)
-    })
+    // The party is already on; what the disco ball offers here is the music,
+    // which only the browser in front of that player can actually start.
+    lane.game.on("discoBallEaten", (x, y) => this.emit("discoBall", seat, x, y))
     lane.game.on("partyBonus", (name, points, x, y) => this.emit("bonus", seat, name, points, x, y))
     lane.game.on("foodEaten", (x, y, points) => this.emit("apple", seat, x, y, points))
   }
@@ -239,7 +234,13 @@ export class Race {
     lane.prepared = false
     lane.accumulator = 0
     lane.game.wallsWrap = this.wrap
-    lane.game.setPartyMode(lane.party)
+    // Party Mode is simply how a race is played: there is no version of it
+    // without the combos, and nothing to be gained by making people ask.
+    lane.game.setPartyMode(true)
+    // Which would ordinarily take the disco ball away, the party having
+    // already started. Here it stays and becomes the way to start the music,
+    // which is the one part of a party a room cannot switch on for you.
+    lane.game.setDiscoBallEnabled(true)
     lane.game.jumpToLevel(level)
   }
 
@@ -264,22 +265,11 @@ export class Race {
     return true
   }
 
-  // Party Mode is one player's choice about their own board. It changes what
-  // scores and what appears on that lane and touches nothing on the other.
-  setParty(seat, enabled) {
-    const lane = this.players[seat]
-    if (!lane || this.phase === PHASE_PLAYING) return false
-    lane.party = !!enabled
-    lane.game.setPartyMode(lane.party)
-    this.emit("boardChanged")
-    return true
-  }
-
   // A beat can only be heard by the browser playing the music, so it is
   // reported rather than measured here. It opens a window on that lane alone.
   registerBeat(seat, strength) {
     const lane = this.players[seat]
-    if (!lane || !lane.present || !lane.party) return false
+    if (!lane || !lane.present) return false
     lane.game.registerStrongBeat(strength)
     return true
   }
@@ -398,11 +388,10 @@ export class Race {
   }
 
   toLobby() {
-    const kept = this.players.map(lane => ({ head: lane.head, party: lane.party, present: lane.present }))
+    const kept = this.players.map(lane => ({ head: lane.head, present: lane.present }))
     this.players = [0, 1, 2, 3].map(seat => makeLane(seat, this.wrap))
     this.players.forEach((lane, seat) => {
       lane.head = kept[seat].head
-      lane.party = kept[seat].party
       lane.present = kept[seat].present
       this.watch(lane, seat)
     })
@@ -433,7 +422,6 @@ export class Race {
       players: this.players.map(lane => ({
         present: lane.present,
         head: lane.head,
-        party: lane.party,
         wins: lane.wins,
         crashes: lane.crashes,
         crashMs: Math.round(lane.crashMs),
@@ -462,7 +450,6 @@ export class Race {
       const lane = this.players[seat]
       lane.present = incoming.present
       lane.head = validHead(incoming.head)
-      lane.party = incoming.party
       lane.wins = incoming.wins
       lane.crashes = incoming.crashes
       lane.crashMs = incoming.crashMs

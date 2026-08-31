@@ -114,9 +114,6 @@ export class VersusRoom extends DurableObject {
       // Null until its player says otherwise, so the model's own two default
       // faces hold until somebody actually picks one.
       head: null,
-      // Party Mode is one player's choice about their own board, so the room
-      // keeps one of these per seat and never one for the room.
-      party: false,
       ready: false,
       budget: 0,
       second: 0
@@ -181,7 +178,6 @@ export class VersusRoom extends DurableObject {
           here: !!info,
           nick: info?.nick || "",
           head: info?.head,
-          party: !!info?.party,
           ready: !!info?.ready
         }
       })
@@ -210,8 +206,6 @@ export class VersusRoom extends DurableObject {
     for (const info of this.sockets.values()) {
       if (info.seat === null) continue
       if (info.head !== null) this.match.setHead(info.seat, info.head)
-      // Only a race has one; a duel is the same game for both of them.
-      this.match.setParty?.(info.seat, info.party)
     }
   }
 
@@ -323,14 +317,6 @@ export class VersusRoom extends DurableObject {
     if (message.t === "nick") {
       info.nick = clean(message.nick, MAX_NICK)
       this.announceLobby()
-      return
-    }
-
-    if (message.t === "party") {
-      info.party = !!message.on
-      this.match?.setParty?.(info.seat, info.party)
-      this.announceLobby()
-      this.broadcastState()
       return
     }
 

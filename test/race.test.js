@@ -24,13 +24,10 @@ import {
   setStartLevel
 } from "../public/snake/Race.js"
 
-// A race already past its countdown. `party` is applied before the countdown
-// runs out, because that is the only time it can be: Party Mode is a lobby
-// choice and the model refuses one mid-race.
-function arena({ party = [false, false], ...options } = {}) {
+// A race already past its countdown.
+function arena(options = {}) {
   const race = new Race(options)
   race.startMatch()
-  party.forEach((on, seat) => { if (on) race.setParty(seat, true) })
   race.step(COUNTDOWN_MS)
   return race
 }
@@ -182,76 +179,61 @@ test("being eaten by a boss says so, and is still only a setback", () => {
 
 // --- party mode, one player at a time ------------------------------------------
 
-test("party mode is one lane's business and never the other's", () => {
-  const race = new Race()
-  race.startMatch()
-  assert.equal(race.setParty(0, true), true)
-
-  assert.equal(race.players[0].game.partyMode, true)
-  assert.equal(race.players[1].game.partyMode, false)
-  assert.equal(race.players[0].party, true)
-  assert.equal(race.players[1].party, false)
-})
-
-test("a lane keeps its party across rounds", () => {
-  const race = arena({ party: [false, true] })
+test("every lane plays with Party Mode on, because that is how a race is played", () => {
+  const race = arena()
+  for (const lane of race.seated) {
+    assert.equal(lane.game.partyMode, true)
+  }
+  // And it survives a round, a crash and a new set.
   race.players[0].game.defeatBoss()
   pump(race, ROUND_OVER_MS)
-
-  assert.equal(race.round, 2)
-  assert.equal(race.players[1].party, true)
-  assert.equal(race.players[1].game.partyMode, true)
-  assert.equal(race.players[0].game.partyMode, false)
+  for (const lane of race.seated) assert.equal(lane.game.partyMode, true)
 })
 
-test("a party lane builds a combo and a plain one does not", () => {
-  const race = arena({ party: [true, false] })
-
-  for (const seat of [0, 1]) {
-    const game = race.players[seat].game
-    for (let apple = 0; apple < 3; ++apple) {
-      game.food = { x: game.snake[0].x + game.direction.x, y: game.snake[0].y + game.direction.y }
-      game.tick()
-    }
+test("the disco ball stays on the board, because here it offers the music", () => {
+  const race = arena()
+  // Party Mode ordinarily takes it away, the party having already started.
+  for (const lane of race.seated) {
+    assert.equal(lane.game.discoBallEnabled, true)
+    assert.ok(lane.game.discoBall.x >= 0, "a lane should have a disco ball on it")
   }
-
-  assert.ok(race.players[0].game.foodMultiplier > 1, "the party lane should be combo-ing")
-  assert.equal(race.players[1].game.foodMultiplier, 1)
-  assert.ok(race.players[0].game.score > race.players[1].game.score,
-    "a multiplier is worth more points for the same apples")
 })
 
-test("a beat only ever reaches the lane that reported it, and only with party on", () => {
-  const race = arena({ party: [true, false] })
+test("eating one says so, and says which lane it was", () => {
+  const race = arena()
+  const seen = []
+  race.on("discoBall", (seat, x, y) => seen.push([seat, x, y]))
+  race.players[1].game.emit("discoBallEaten", 4, 5)
+  assert.deepEqual(seen, [[1, 4, 5]])
+})
 
-  assert.equal(race.registerBeat(1, 1), false, "no party, no beat")
+test("every lane builds a combo, and it is worth more than the apples alone", () => {
+  const race = arena()
+  const game = race.players[0].game
+  for (let apple = 0; apple < 3; ++apple) {
+    game.food = { x: game.snake[0].x + game.direction.x, y: game.snake[0].y + game.direction.y }
+    game.tick()
+  }
+  assert.ok(game.foodMultiplier > 1)
+  assert.ok(game.score > 3, "three apples at a multiplier are worth more than three")
+})
+
+test("a beat only ever reaches the lane that reported it", () => {
+  const race = arena()
   assert.equal(race.registerBeat(0, 1), true)
   assert.ok(race.players[0].game.beatWindowMs > 0)
   assert.equal(race.players[1].game.beatWindowMs, 0)
+  // And an empty seat has no lane to open one on.
+  assert.equal(race.registerBeat(3, 1), false)
 })
 
-test("the disco ball is still the offer of a party, for whoever ate it", () => {
-  const race = arena()
-  assert.equal(race.players[1].party, false)
-  race.players[1].game.emit("discoBallEaten", 3, 3)
-
-  assert.equal(race.players[1].party, true)
-  assert.equal(race.players[1].game.partyMode, true)
-  assert.equal(race.players[0].party, false)
-})
-
-test("a face and a party are picked before a race and not during one", () => {
+test("a face is picked before a race and not during one", () => {
   const race = new Race()
   race.startMatch()
   assert.equal(race.setHead(0, 2), true)
-  assert.equal(race.setParty(0, true), true)
-
   race.step(COUNTDOWN_MS)
-  assert.equal(race.phase, PHASE_PLAYING)
   assert.equal(race.setHead(0, 5), false)
-  assert.equal(race.setParty(0, false), false)
   assert.equal(race.players[0].head, 2)
-  assert.equal(race.players[0].party, true)
 })
 
 // --- the match ------------------------------------------------------------------
@@ -304,7 +286,7 @@ test("a lane is a practice run on storage of its own", () => {
 // --- the wire ----------------------------------------------------------------------
 
 test("a snapshot carries two whole games there and back", () => {
-  const race = arena({ party: [true, false] })
+  const race = arena()
   race.players[0].head = 4
   race.placeLane(0, setBossLevel(1))
   race.players[1].wins = 2
@@ -315,7 +297,6 @@ test("a snapshot carries two whole games there and back", () => {
 
   assert.deepEqual(watcher.snapshot(), race.snapshot())
   assert.equal(watcher.players[0].head, 4)
-  assert.equal(watcher.players[0].party, true)
   assert.equal(watcher.players[1].wins, 2)
   // The boss and everything derived from it survives, which is what lets the
   // far browser draw a fight it is not running.
@@ -394,12 +375,9 @@ test("one lane crashing leaves the other three alone", () => {
   assert.equal(race.phase, PHASE_PLAYING)
 })
 
-test("party mode stays one lane's business with four of them", () => {
-  const race = new Race({ present: [true, true, true, true] })
-  race.startMatch()
-  race.setParty(1, true)
-  race.setParty(3, true)
-  assert.deepEqual(race.players.map(lane => lane.game.partyMode), [false, true, false, true])
+test("all four lanes play the same game", () => {
+  const race = foursome()
+  assert.deepEqual(race.seated.map(lane => lane.game.partyMode), [true, true, true, true])
 })
 
 test("an absent seat cannot win a match", () => {

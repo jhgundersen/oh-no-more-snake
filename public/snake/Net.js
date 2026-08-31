@@ -174,10 +174,6 @@ export class Net {
     this.send({ t: "mode", mode })
   }
 
-  setParty(on) {
-    this.send({ t: "party", on })
-  }
-
   setWins(wins) {
     this.send({ t: "wins", wins })
   }

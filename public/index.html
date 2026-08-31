@@ -261,6 +261,63 @@
 
 		#versus-head {
 			flex-wrap: wrap;
+			gap: 10px;
+		}
+
+		/* Beside the board rather than over it: the board is measured from what
+		   the frame has left, so opening this simply leaves it less. */
+		#playchat {
+			position: absolute;
+			right: 0;
+			top: 0;
+			bottom: 0;
+			width: 210px;
+			display: flex;
+			flex-direction: column;
+			padding: 8px;
+			border-radius: 8px;
+			background: var(--play-area);
+			border: 1px solid var(--combo-trough);
+		}
+
+		#playchat .lobby-chat {
+			flex: 1 1 auto;
+			min-height: 0;
+		}
+
+		#playchat #chat-log {
+			max-height: none;
+		}
+
+		#chat-toggle {
+			height: 26px;
+			padding: 0 8px;
+			font-size: 13px;
+			border-radius: 8px;
+			background: transparent;
+			border-color: var(--muted);
+		}
+
+		#chat-toggle[aria-pressed="true"] {
+			background: var(--accent);
+			border-color: var(--button-border);
+		}
+
+		#chat-toggle.unread {
+			border-color: var(--accent);
+			color: var(--accent);
+		}
+
+		/* Under the board instead of beside it, where beside it would leave the
+		   board no room at all. */
+		#playchat.below {
+			left: 0;
+			right: 0;
+			top: auto;
+			bottom: 0;
+			width: auto;
+			height: 42%;
+			min-height: 120px;
 		}
 
 		.vs-players {
@@ -1071,6 +1128,8 @@
 		     and two of everything else. -->
 		<div id="versus-head">
 			<div class="vs-middle" id="vs-middle">READY</div>
+			<button type="button" id="chat-toggle" hidden aria-pressed="false"
+				aria-label="Chat">💬</button>
 			<!-- One chip per player, built by web.js: there may be two of them
 			     or four. -->
 			<div class="vs-players" id="vs-players"></div>
@@ -1085,6 +1144,10 @@
 
 		<div id="board-frame">
 			<canvas id="board" width="440" height="320" aria-label="Snake board"></canvas>
+
+			<!-- The lobby's chat, moved here while a match is on. One chat, in
+			     whichever of the two places is on screen. -->
+			<aside id="playchat" hidden aria-label="Chat"></aside>
 
 			<!-- Where two players meet before there is a board to look at. It sits
 			     inside the frame rather than over the page so that fullscreen and

@@ -438,8 +438,10 @@ export function draw(ctx, view) {
   glyph(ctx, food.glyph, game.food.x, game.food.y, cell, cell * 0.85, theme.accent, food.family)
   ctx.restore()
 
-  // The disco ball is the offer of a party, so it only exists before one.
-  if (!party && game.discoBall.x >= 0) {
+  // In a run the disco ball is the offer of a party and goes once one starts.
+  // In a race the party is already on and the ball is the offer of the music,
+  // so it stays — either way it is drawn whenever it is on the board.
+  if (game.discoBall.x >= 0) {
     const discoColor = rgba(mixColors(colors.accent, colors.foreground, fx.discoPulse))
     ctx.save()
     ctx.globalAlpha = fx.boardContentOpacity
@@ -1279,22 +1281,52 @@ export function drawVersus(ctx, view) {
   const { versus, theme, cell } = view
   const colors = theme.colors
   const { width, height } = boardSize(cell, versus.columns, versus.rows)
+  // A duel has no Party Mode of its own — it scores by outliving, not by
+  // eating — but a board with music playing over it should still move to it.
+  const music = view.music || { enabled: false, bass: 0, mid: 0, treble: 0, leadSpectrum: [] }
+  const fx = view.fx || { backgroundPulse: 0, foodPulse: 0, danceWave: () => 0 }
+  const party = music.enabled
+  const frequencyColor = level => rgba(mixColors(colors.muted, colors.accent, level))
 
   ctx.clearRect(0, 0, width, height)
 
+  const border = party ? 2 : 1
   fillRound(ctx, 0, 0, width, height, 5, theme.playArea)
-  roundRect(ctx, 0.5, 0.5, width - 1, height - 1, 5)
-  ctx.lineWidth = 1
-  ctx.strokeStyle = rgba(colors.foreground, 0.22)
+  roundRect(ctx, border / 2, border / 2, width - border, height - border, 5)
+  ctx.lineWidth = border
+  ctx.strokeStyle = party ? frequencyColor(music.treble) : rgba(colors.foreground, 0.22)
   ctx.stroke()
 
   ctx.save()
   roundRect(ctx, 0, 0, width, height, 5)
   ctx.clip()
 
-  for (const wall of versus.obstacles) {
-    fillRound(ctx, wall.x * cell + 1, wall.y * cell + 1, cell - 2, cell - 2, 2, theme.muted)
+  if (party) {
+    // The three bands, laid across the board left to right, exactly as a run
+    // lays them.
+    const gradient = ctx.createLinearGradient(0, 0, width, 0)
+    gradient.addColorStop(0, rgba(mixColors(colors.background, colors.accent, 0.28 + music.bass * 0.72)))
+    gradient.addColorStop(0.5, rgba(mixColors(colors.background, colors.foreground, 0.24 + music.mid * 0.76)))
+    gradient.addColorStop(1, rgba(mixColors(colors.accent, colors.foreground, music.treble)))
+    ctx.globalAlpha = 0.13
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, width, height)
+    ctx.globalAlpha = 1
+
+    if (fx.backgroundPulse > 0) {
+      ctx.globalAlpha = fx.backgroundPulse
+      ctx.fillStyle = theme.accent
+      ctx.fillRect(0, 0, width, height)
+      ctx.globalAlpha = 1
+    }
   }
+
+  versus.obstacles.forEach((wall, index) => {
+    const band = index % 3
+    const level = party ? (band === 0 ? music.bass : band === 1 ? music.mid : music.treble) : 0
+    fillRound(ctx, wall.x * cell + 1, wall.y * cell + 1, cell - 2, cell - 2, 2,
+      party ? frequencyColor(level) : theme.muted)
+  })
 
   const radius = Math.max(2, cell * 0.2)
   // Tags belong to the moments when the board is not moving: at the start of a
@@ -1306,11 +1338,21 @@ export function drawVersus(ctx, view) {
     if (!player.present) return
     const skin = versusSkin(theme, seat)
     ctx.globalAlpha = player.alive ? 1 : 0.42
+    const headBase = parseHex(skin.head)
+    const bodyBase = parseHex(skin.body)
     player.snake.forEach((segment, index) => {
       const size = skin.round ? cell - 1 : cell - 2
-      const x = segment.x * cell + (cell - size) / 2
-      const y = segment.y * cell + (cell - size) / 2
-      const colour = index === 0 ? skin.head : skin.body
+      // Every segment lags the one before it, so a beat travels down the body
+      // as a wave rather than moving the whole snake at once.
+      const dance = party ? fx.danceWave(index) : 0
+      const x = segment.x * cell + (cell - size) / 2 + dance * 1.8
+      const y = segment.y * cell + (cell - size) / 2 + dance * (index % 2 === 0 ? 0.8 : -0.8)
+      const level = party ? spectrumRange(music.leadSpectrum, index, player.snake.length) : 0
+      const colour = !party
+        ? (index === 0 ? skin.head : skin.body)
+        : rgba(index === 0
+          ? mixColors(headBase, colors.accent, level)
+          : mixColors(colors.muted, bodyBase, level))
       if (skin.round) {
         ctx.beginPath()
         ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2)
@@ -1351,7 +1393,17 @@ export function drawVersus(ctx, view) {
 
   if (versus.food.x >= 0) {
     const food = view.foods[view.foodStyleIndex % view.foods.length]
+    ctx.save()
+    if (party) {
+      ctx.shadowColor = rgba(colors.accent, 0.38 + fx.foodPulse * 0.42)
+      ctx.shadowBlur = 24 * (0.7 + music.treble * 0.3)
+      const scale = 1 + fx.foodPulse * 0.24
+      ctx.translate((versus.food.x + 0.5) * cell, (versus.food.y + 0.5) * cell)
+      ctx.scale(scale, scale)
+      ctx.translate(-(versus.food.x + 0.5) * cell, -(versus.food.y + 0.5) * cell)
+    }
     glyph(ctx, food.glyph, versus.food.x, versus.food.y, cell, cell * 0.85, theme.accent, food.family)
+    ctx.restore()
   }
 
   if (versus.phase !== "playing") drawVersusOverlay(ctx, view, width, height)
@@ -1711,55 +1763,6 @@ export function laneMusic(party, source) {
   }
 }
 
-// A small cone over the head of anybody who turned Party Mode on. It is the
-// only thing on the board that says which of the two is playing which game.
-function drawPartyHat(ctx, { x, y, size, theme }) {
-  const width = size * 0.78
-  const height = size * 1.0
-  const centre = x + size / 2
-  const brim = y + size * 0.18
-
-  ctx.save()
-  // Worn at an angle, because nobody wears one straight.
-  ctx.translate(centre, brim)
-  ctx.rotate(-0.26)
-
-  const left = -width / 2
-  const tip = -height
-
-  ctx.beginPath()
-  ctx.moveTo(0, tip)
-  ctx.lineTo(width / 2, 0)
-  ctx.lineTo(left, 0)
-  ctx.closePath()
-
-  ctx.save()
-  ctx.clip()
-  ctx.fillStyle = theme.accent
-  ctx.fillRect(left, tip, width, height)
-  // Bands across the cone. Along with the pom-pom they are what makes a
-  // triangle read as a party hat rather than as a triangle.
-  ctx.fillStyle = theme.foreground
-  for (const at of [0.38, 0.68]) {
-    ctx.fillRect(left, tip + height * at, width, Math.max(1, height * 0.13))
-  }
-  ctx.restore()
-
-  ctx.lineWidth = Math.max(0.8, size * 0.055)
-  ctx.strokeStyle = INK
-  ctx.lineJoin = "round"
-  ctx.stroke()
-
-  // The pom-pom, which is the rest of it.
-  ctx.beginPath()
-  ctx.arc(0, tip, Math.max(1.5, size * 0.15), 0, Math.PI * 2)
-  ctx.fillStyle = theme.foreground
-  ctx.fill()
-  ctx.lineWidth = Math.max(0.6, size * 0.04)
-  ctx.stroke()
-  ctx.restore()
-}
-
 export function drawRace(ctx, view) {
   const { race, theme, cell } = view
   const colors = theme.colors
@@ -1786,7 +1789,7 @@ export function drawRace(ctx, view) {
     // The middle of a caption is the wins, unless a combo is running, in which
     // case it is the combo: a multiplier nobody can see is a multiplier nobody
     // is playing for.
-    if (lane.party && game.foodMultiplier > 1) {
+    if (game.foodMultiplier > 1) {
       label(ctx, `${partyComboName(game.foodMultiplier)} ×${game.foodMultiplier}`,
         spot.x + layout.boardW / 2, spot.y + 12, 11, theme.accent)
     } else {
@@ -1826,16 +1829,6 @@ export function drawRace(ctx, view) {
           : undefined
     })
 
-    // The hat goes on after the board, so nothing is drawn over it.
-    if (lane.party && game.snake.length && !game.levelTransition) {
-      const head = game.snake[0]
-      drawPartyHat(ctx, {
-        x: head.x * cell + 1,
-        y: head.y * cell + 1,
-        size: cell - 2,
-        theme
-      })
-    }
     ctx.restore()
 
     // --- how far through the set ---
