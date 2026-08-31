@@ -21,7 +21,7 @@
 
 import { DurableObject } from "cloudflare:workers"
 
-import { PHASE_LOBBY, PHASE_MATCH_OVER, Versus, validHead } from "../public/snake/Versus.js"
+import { MAX_SEATS, MIN_SEATS, PHASE_LOBBY, PHASE_MATCH_OVER, Versus, validHead } from "../public/snake/Versus.js"
 import { Race } from "../public/snake/Race.js"
 
 // Enough for the people not playing to watch, and few enough that a room is
@@ -43,7 +43,10 @@ const CHAT_HISTORY = 40
 // step, and a race frame carries two whole games.
 const BROADCAST_MS = 50
 
-const SEATS = 2
+const SEATS = MAX_SEATS
+// How many rounds a match can be. One is a single game; five is a long
+// evening. Anything else is not a number of rounds.
+const WINS_CHOICES = [1, 2, 3, 4, 5]
 // The first is the default, because a race is the mode most people mean by
 // two players.
 const MODES = ["race", "duel"]
@@ -71,6 +74,7 @@ export class VersusRoom extends DurableObject {
     this.sockets = new Map()
     this.match = null
     this.mode = MODES[0]
+    this.winsNeeded = 3
     this.chat = []
     this.timer = null
     this.lastAt = 0
@@ -103,7 +107,7 @@ export class VersusRoom extends DurableObject {
     const [client, server] = Object.values(pair)
     server.accept()
 
-    const seat = [0, 1].find(candidate => !seats.includes(candidate))
+    const seat = [...Array(SEATS).keys()].find(candidate => !seats.includes(candidate))
     this.sockets.set(server, {
       seat: seat === undefined ? null : seat,
       nick: "",
@@ -126,7 +130,8 @@ export class VersusRoom extends DurableObject {
       t: "welcome",
       seat: seat === undefined ? null : seat,
       wrap: this.wrap,
-      mode: this.mode
+      mode: this.mode,
+      seats: SEATS
     })
     // What was said before they arrived, so a lobby is not a blank room.
     if (this.chat.length) this.send(server, { t: "chatlog", messages: this.chat })
@@ -165,8 +170,11 @@ export class VersusRoom extends DurableObject {
       t: "lobby",
       mode: this.mode,
       wrap: this.wrap,
+      winsNeeded: this.winsNeeded,
+      seats: SEATS,
+      minimum: MIN_SEATS,
       spectators: this.spectators(),
-      players: [0, 1].map(seat => {
+      players: [...Array(SEATS).keys()].map(seat => {
         const info = this.seatInfo(seat)
         return {
           seat,
@@ -182,8 +190,16 @@ export class VersusRoom extends DurableObject {
 
   // --- starting and stopping ---
 
+  // Who is actually in the match, seat by seat. Seats keep their numbers, so a
+  // gap left by somebody who never turned up is a seat nobody is sitting in
+  // rather than a renumbering of everybody after it.
+  presence() {
+    return [...Array(SEATS).keys()].map(seat => !!this.seatInfo(seat))
+  }
+
   makeMatch() {
-    return this.mode === "race" ? new Race({ wrap: this.wrap }) : new Versus({ wrap: this.wrap })
+    const options = { wrap: this.wrap, winsNeeded: this.winsNeeded, present: this.presence() }
+    return this.mode === "race" ? new Race(options) : new Versus(options)
   }
 
   // Faces and parties are remembered by the room, not by the board: a match is
@@ -203,8 +219,11 @@ export class VersusRoom extends DurableObject {
   // lobby a lobby rather than a doorway: nobody is dropped into a countdown
   // they were not looking at.
   startIfReady() {
-    const seated = [0, 1].map(seat => this.seatInfo(seat))
-    if (seated.some(info => !info || !info.ready)) return
+    // Everybody who is here, and at least two of them. Waiting for all four
+    // would mean two people could never start a game.
+    const seated = [...this.sockets.values()].filter(info => info.seat !== null)
+    if (seated.length < MIN_SEATS) return
+    if (seated.some(info => !info.ready)) return
     if (this.match && this.match.phase !== PHASE_LOBBY) return
     this.match = this.makeMatch()
     this.match.startMatch()
@@ -330,6 +349,19 @@ export class VersusRoom extends DurableObject {
       if (this.match) this.match.setHead(info.seat, info.head)
       this.announceLobby()
       this.broadcastState()
+      return
+    }
+
+    if (message.t === "wins") {
+      // How many rounds the match is. One decision for the room, so the first
+      // seat makes it, and changing it is a reason to look again before
+      // starting.
+      if (this.match || info.seat !== 0) return
+      const wanted = Math.floor(Number(message.wins))
+      if (!WINS_CHOICES.includes(wanted)) return
+      this.winsNeeded = wanted
+      for (const other of this.sockets.values()) other.ready = false
+      this.announceLobby()
       return
     }
 

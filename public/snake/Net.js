@@ -178,6 +178,10 @@ export class Net {
     this.send({ t: "party", on })
   }
 
+  setWins(wins) {
+    this.send({ t: "wins", wins })
+  }
+
   beat(strength) {
     this.send({ t: "beat", strength })
   }

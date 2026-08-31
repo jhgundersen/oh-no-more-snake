@@ -204,9 +204,9 @@ These come from the Qt version and hold here too.
 - Buttons keep hover and active feedback and accessible names. Shortcut letters
   are shown by bolding the first letter, not with `(x)` text.
 
-## Two-player invariants
+## Multiplayer invariants
 
-Two players is new here — the Qt version has no multiplayer at all — so these
+Multiplayer is new here — the Qt version has no multiplayer at all — so these
 come from nowhere but this repository. There are two games: a duel on one board
 and a race on two. Both present the same interface (`phase`, `players`,
 `advance`, `tick`, `turn`, `setHead`, `startMatch`, `snapshot`,
@@ -241,6 +241,18 @@ third mode should mean adding a model, not editing those two.
   while the other one keeps going. A lane whose game is over is a crash however
   it got there — checking only after a tick misses being eaten by a boss, which
   happens on the boss's clock rather than the snake's.
+- **Party Mode starts the music.** It has meant music since the desktop
+  version, and a party with nothing playing is most of the point missing. The
+  click that asks for it is also the gesture playback needs, which is the one
+  moment it can be started from. A combo nobody can see is a combo nobody plays
+  for: a run shows it in the meters, and a race shows it in the lane's caption,
+  because the meters belong to one board and there may be four.
+- **Party Mode starts the music.** It has meant music since the desktop
+  version, and a party with nothing playing is most of the point missing. The
+  click that asks for it is also the gesture playback needs, which is the one
+  moment it can be started from. A combo nobody can see is a combo nobody plays
+  for: a run shows it in the meters, and a race shows it in the lane's caption,
+  because the meters belong to one board and there may be four.
 - **Party Mode in a race belongs to one player.** It changes what scores on
   that board and touches nothing on the other, and the hat over the head is how
   anyone can tell. Beats are the one part that cannot be measured server-side —
@@ -270,7 +282,25 @@ third mode should mean adding a model, not editing those two.
   turn hands one of the two players the better side of the board. The spawn
   runway is kept clear of walls for the same reason `findSpawn` exists in the
   single-player game.
-- **Colour alone cannot tell the two snakes apart.** In half the palettes the
+- **Four is the ceiling, and it is not arbitrary.** Snakes are told apart by
+  shape against colour, and the board may only use the theme's accent and
+  foreground: two shapes against two colours is exactly four. `MAX_SEATS` is
+  that arithmetic and not a preference. A fifth seat needs a new answer to the
+  identity problem before it needs any code.
+- **Seats keep their numbers.** A model always has four player slots and
+  `present` says which are occupied, so seat two is seat two to the room, the
+  board, the keyboard and the person sitting in it. Compacting the occupied
+  seats down would renumber people whenever somebody left.
+- **Four is the ceiling, and it is not arbitrary.** Snakes are told apart by
+  shape against colour, and the board may only use the theme's accent and
+  foreground: two shapes against two colours is exactly four. `MAX_SEATS` is
+  that arithmetic and not a preference. A fifth seat needs a new answer to the
+  identity problem before it needs any code.
+- **Seats keep their numbers.** A model always has four player slots and
+  `present` says which are occupied, so seat two is seat two to the room, the
+  board, the keyboard and the person sitting in it. Compacting the occupied
+  seats down would renumber people whenever somebody left.
+- **Colour alone cannot tell the snakes apart.** In half the palettes the
   accent and the foreground are two shades of the same blue, so the second
   snake is drawn round where the first is square. That difference has to
   survive, whatever else changes: a duel between two snakes a player cannot

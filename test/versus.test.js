@@ -21,6 +21,10 @@ import {
   mirrorCell,
   spawnCells,
   spawnRow,
+  MAX_SEATS,
+  flipRow,
+  spawnDirection,
+  spawnFor,
   spawnZone,
   validHead,
   versusObstacles
@@ -482,4 +486,162 @@ test("a face survives the round, the match and the trip over the wire", () => {
   versus.toLobby()
   assert.equal(versus.players[0].head, 4)
   assert.equal(versus.players[1].head, 1)
+})
+
+// --- four on one board ---------------------------------------------------------
+
+const foursome = (options = {}) => {
+  const versus = new Versus({ random: () => 0, present: [true, true, true, true], ...options })
+  versus.startMatch()
+  versus.advance(COUNTDOWN_MS)
+  versus.food = { x: -1, y: -1 }
+  return versus
+}
+
+test("an empty seat is on the board's books and on nothing else", () => {
+  const versus = new Versus({ random: () => 0 })
+  versus.startMatch()
+  assert.equal(versus.players.length, MAX_SEATS)
+  assert.deepEqual(versus.players.map(player => player.present), [true, true, false, false])
+  assert.equal(versus.seated.length, 2)
+  // The two nobody is in have no snake at all.
+  assert.equal(versus.players[2].snake.length, 0)
+  assert.equal(versus.players[3].snake.length, 0)
+  assert.equal(versus.turn(2, 0, 1), false)
+})
+
+test("four spawns, all of them the first one moved by a symmetry of the board", () => {
+  const versus = foursome()
+  const snakes = versus.players.map(player => player.snake)
+  for (const snake of snakes) assert.equal(snake.length, 3)
+
+  // No two of them share a cell, and each faces inwards.
+  const seen = new Set()
+  for (const snake of snakes) {
+    for (const cell of snake) {
+      const key = `${cell.x},${cell.y}`
+      assert.ok(!seen.has(key), `two snakes spawned on ${key}`)
+      seen.add(key)
+    }
+  }
+  assert.deepEqual(versus.players[0].direction, { x: 1, y: 0 })
+  assert.deepEqual(versus.players[1].direction, { x: -1, y: 0 })
+  assert.deepEqual(versus.players[2].direction, { x: 1, y: 0 })
+  assert.deepEqual(versus.players[3].direction, { x: -1, y: 0 })
+
+  // Seat two is seat zero reflected top to bottom, and seat three is seat one.
+  versus.players[0].snake.forEach((cell, index) => {
+    assert.deepEqual(versus.players[2].snake[index], flipRow(cell, versus.columns, versus.rows))
+  })
+  versus.players[1].snake.forEach((cell, index) => {
+    assert.deepEqual(versus.players[3].snake[index], flipRow(cell, versus.columns, versus.rows))
+  })
+})
+
+test("with more than two on the board the layouts match top to bottom as well", () => {
+  for (let round = 1; round <= 8; ++round) {
+    const obstacles = versusObstacles(round, VERSUS_COLUMNS, VERSUS_ROWS, 4)
+    for (const cell of obstacles) {
+      for (const twin of [
+        mirrorCell(cell, VERSUS_COLUMNS, VERSUS_ROWS),
+        flipRow(cell, VERSUS_COLUMNS, VERSUS_ROWS)
+      ]) {
+        assert.ok(obstacles.some(other => other.x === twin.x && other.y === twin.y),
+          `round ${round} has a wall at ${cell.x},${cell.y} with nothing opposite it`)
+      }
+    }
+  }
+})
+
+test("no arrangement lands on any of the four spawns", () => {
+  for (const seats of [2, 3, 4]) {
+    const zone = spawnZone(VERSUS_COLUMNS, VERSUS_ROWS, seats)
+    for (let round = 1; round <= 8; ++round) {
+      for (const cell of versusObstacles(round, VERSUS_COLUMNS, VERSUS_ROWS, seats)) {
+        assert.ok(!zone.some(spot => spot.x === cell.x && spot.y === cell.y),
+          `${seats} seats, round ${round}: a wall at ${cell.x},${cell.y}`)
+      }
+    }
+  }
+})
+
+test("a round of four runs on after the first death", () => {
+  const versus = foursome()
+  // Seat two into a wall, with the other three well clear of it.
+  versus.obstacles = [{ x: 9, y: 9 }]
+  place(versus, 2, [[8, 9], [7, 9], [6, 9]], [1, 0])
+  versus.tick()
+
+  assert.equal(versus.players[2].alive, false)
+  assert.equal(versus.phase, PHASE_PLAYING, "three of them are still playing")
+  assert.equal(versus.alive.length, 3)
+  assert.equal(versus.roundWinner, null)
+})
+
+test("a dead snake is off the board on the next tick", () => {
+  const versus = foursome()
+  versus.obstacles = [{ x: 9, y: 9 }]
+  place(versus, 2, [[8, 9], [7, 9], [6, 9]], [1, 0])
+  versus.tick()
+  // Left where it fell for the frame that killed it...
+  assert.ok(versus.players[2].snake.length > 0)
+  versus.tick()
+  // ...and gone by the next, so nothing can crash into a body it cannot see.
+  assert.equal(versus.players[2].snake.length, 0)
+})
+
+test("the round goes to the last one standing", () => {
+  const versus = foursome()
+  versus.obstacles = [{ x: 9, y: 9 }, { x: 9, y: 12 }, { x: 9, y: 15 }]
+  place(versus, 0, [[8, 9], [7, 9], [6, 9]], [1, 0])
+  place(versus, 2, [[8, 12], [7, 12], [6, 12]], [1, 0])
+  place(versus, 3, [[8, 15], [7, 15], [6, 15]], [1, 0])
+  place(versus, 1, [[20, 3], [21, 3], [22, 3]], [-1, 0])
+  versus.tick()
+
+  assert.equal(versus.phase, PHASE_ROUND_OVER)
+  assert.equal(versus.roundWinner, 1)
+  assert.equal(versus.players[1].wins, 1)
+})
+
+test("when the last of them go together it is decided on apples", () => {
+  const versus = foursome()
+  versus.players[2].alive = false
+  versus.players[3].alive = false
+  versus.players[0].score = 4
+  versus.players[1].score = 2
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  place(versus, 1, [[7, 5], [8, 5], [9, 5]], [-1, 0])
+  versus.tick()
+
+  assert.equal(versus.roundWinner, 0)
+  assert.equal(versus.players[0].wins, 1)
+})
+
+test("a seat that is not playing cannot take a round", () => {
+  const versus = foursome()
+  versus.players[3].present = false
+  versus.obstacles = [{ x: 9, y: 9 }, { x: 9, y: 12 }]
+  place(versus, 0, [[8, 9], [7, 9], [6, 9]], [1, 0])
+  place(versus, 2, [[8, 12], [7, 12], [6, 12]], [1, 0])
+  place(versus, 1, [[20, 3], [21, 3], [22, 3]], [-1, 0])
+  versus.tick()
+
+  assert.equal(versus.roundWinner, 1)
+  assert.equal(versus.players[3].wins, 0)
+})
+
+test("a snapshot carries who is playing", () => {
+  const versus = foursome()
+  versus.players[3].present = false
+  const watcher = new Versus()
+  watcher.applySnapshot(JSON.parse(JSON.stringify(versus.snapshot())))
+  assert.deepEqual(watcher.players.map(p => p.present), [true, true, true, false])
+  assert.deepEqual(watcher.snapshot(), versus.snapshot())
+})
+
+test("the four default faces are four different faces", () => {
+  const versus = foursome()
+  const heads = versus.players.map(player => player.head)
+  assert.equal(new Set(heads).size, 4)
 })

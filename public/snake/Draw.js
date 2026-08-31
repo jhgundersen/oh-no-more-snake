@@ -11,6 +11,7 @@ import { COLUMNS, ROWS, bossNumber, levelName } from "./Game.js"
 import { HEADS } from "./Versus.js"
 import { setBossLevel, setStartLevel } from "./Race.js"
 import { spectrumRange } from "./Audio.js"
+import { partyComboName } from "./Messages.js"
 import { bossFor, drawPortrait } from "./Bosses.js"
 import { mixColors, parseColor, rgba } from "./Palette.js"
 
@@ -283,31 +284,62 @@ export function draw(ctx, view) {
 
   // --- the snake ---
 
+  // A single-player snake wears the theme's foreground over its accent and is
+  // a rounded square. A snake in a race says which of the four it is, so it
+  // brings its own two colours and its own shape — and with no skin given, the
+  // arithmetic below comes out at exactly the single-player colours.
+  const skin = view.skin
+  const headBase = skin ? parseHex(skin.head) : colors.foreground
+  const bodyBase = skin ? parseHex(skin.body) : colors.accent
+  const roundBody = !!skin?.round
+  const face = view.head || 0
+
   const radius = Math.max(2, cell * 0.2)
+  const blockSize = roundBody ? cell - 1 : cell - 2
+  const inset = (cell - blockSize) / 2
+  const block = (x, y, colour) => {
+    if (!roundBody) {
+      fillRound(ctx, x, y, blockSize, blockSize, radius, colour)
+      return
+    }
+    ctx.beginPath()
+    ctx.arc(x + blockSize / 2, y + blockSize / 2, blockSize / 2, 0, Math.PI * 2)
+    ctx.fillStyle = colour
+    ctx.fill()
+  }
+
   ctx.globalAlpha = fx.boardContentOpacity
   game.snake.forEach((segment, index) => {
     const leadLevel = party ? spectrumRange(music.leadSpectrum, index, game.snake.length) : 0
     const color = !party
-      ? (index === 0 ? theme.foreground : theme.accent)
+      ? rgba(index === 0 ? headBase : bodyBase)
       : (index === 0
-        ? rgba(mixColors(colors.foreground, colors.accent, leadLevel))
-        : frequencyColor(leadLevel))
+        ? rgba(mixColors(headBase, colors.accent, leadLevel))
+        : rgba(mixColors(colors.muted, bodyBase, leadLevel)))
     // Every segment lags the one before it, so a beat travels down the body
     // as a wave rather than moving the whole snake at once.
     const dance = party ? fx.danceWave(index) : 0
-    const x = segment.x * cell + 1 + dance * 1.8
-    const y = segment.y * cell + 1 + dance * (index % 2 === 0 ? 0.8 : -0.8)
-    const size = cell - 2
+    const x = segment.x * cell + inset + dance * 1.8
+    const y = segment.y * cell + inset + dance * (index % 2 === 0 ? 0.8 : -0.8)
+    const size = blockSize
     if (dance === 0) {
-      fillRound(ctx, x, y, size, size, radius, color)
-      if (index === 0) drawFace(ctx, { x, y, size, direction: game.direction, angry: false })
+      block(x, y, color)
+      if (index === 0) {
+        drawHeadFace(ctx, {
+          x, y, size, radius, round: roundBody, direction: game.direction, head: face
+        })
+      }
       return
     }
     ctx.save()
     ctx.translate(x + size / 2, y + size / 2)
     ctx.rotate((dance * 5.5 * Math.PI) / 180)
-    fillRound(ctx, -size / 2, -size / 2, size, size, radius, color)
-    if (index === 0) drawFace(ctx, { x: -size / 2, y: -size / 2, size, direction: game.direction, angry: false })
+    block(-size / 2, -size / 2, color)
+    if (index === 0) {
+      drawHeadFace(ctx, {
+        x: -size / 2, y: -size / 2, size, radius, round: roundBody, direction: game.direction, head: face
+      })
+    }
     ctx.restore()
   })
   ctx.globalAlpha = 1
@@ -1153,21 +1185,33 @@ const CRASH_REASONS = {
   stalemate: "neither of them blinked"
 }
 
-// Both snakes come out of the theme rather than out of a fixed pair of
-// colours, because all ten palettes have to stay readable and only the six
-// theme names are the game's to use. They share the two a single-player snake
-// already wears and swap them over.
+// The snakes come out of the theme rather than out of a fixed set of colours,
+// because all ten palettes have to stay readable and only the six theme names
+// are the game's to use. They share the two a single-player snake already
+// wears and swap them over.
 //
-// Colour alone will not carry it, though: in half the palettes the accent and
-// the foreground are two shades of the same blue, and two snakes a player
-// cannot tell apart at a glance is not a duel. So the second snake is round
-// where the first is square — the one difference that survives every palette,
-// and reads at twelve pixels as well as at forty. The numbered tag above each
-// head settles anything left at the start of a round, which is when nothing is
-// moving and there is time to read it.
-const versusSkin = (theme, seat) => seat === 0
-  ? { body: theme.accent, head: theme.foreground, round: false }
-  : { body: theme.foreground, head: theme.accent, round: true }
+// Colour alone will not carry it: in half the palettes the accent and the
+// foreground are two shades of the same blue, and snakes a player cannot tell
+// apart at a glance are not a game. So shape does half the work — round where
+// the first is square — which is the one difference that survives every
+// palette and reads at twelve pixels as well as at forty.
+//
+// Two shapes against two colours is exactly four, and four is therefore where
+// the board runs out of snakes it can honestly distinguish. Seats zero and one
+// are what they always were, so a game of two looks unchanged. The numbered
+// tag above each head settles anything left at the start of a round, which is
+// when nothing is moving and there is time to read it.
+const SKINS = [
+  { body: "accent", head: "foreground", round: false },
+  { body: "foreground", head: "accent", round: true },
+  { body: "accent", head: "foreground", round: true },
+  { body: "foreground", head: "accent", round: false }
+]
+
+const versusSkin = (theme, seat) => {
+  const skin = SKINS[seat % SKINS.length]
+  return { body: theme[skin.body], head: theme[skin.head], round: skin.round }
+}
 
 // One head on its own, for the picker. It draws the block as well as the face,
 // because which shape a seat is — square or round — is half of how the two
@@ -1244,6 +1288,7 @@ export function drawVersus(ctx, view) {
   const tagged = versus.phase === "countdown" || versus.phase === "roundOver"
 
   versus.players.forEach((player, seat) => {
+    if (!player.present) return
     const skin = versusSkin(theme, seat)
     ctx.globalAlpha = player.alive ? 1 : 0.42
     player.snake.forEach((segment, index) => {
@@ -1302,22 +1347,25 @@ export function drawVersus(ctx, view) {
 // The name of a seat as this browser should say it: two players at one
 // keyboard are "PLAYER 1" and "PLAYER 2", and two players in two rooms are
 // "YOU" and "THEM".
-export const versusName = (seat, mySeat) =>
-  mySeat === null || mySeat === undefined
-    ? `PLAYER ${seat + 1}`
-    : seat === mySeat ? "YOU" : "THEM"
+// The name somebody chose beats anything worked out from a seat number, which
+// matters more with four of them: "THEM" said three times names nobody.
+export const versusName = (seat, mySeat, names) => {
+  const chosen = names?.[seat]
+  if (chosen) return chosen.toUpperCase().slice(0, 12)
+  if (mySeat === null || mySeat === undefined) return `PLAYER ${seat + 1}`
+  return seat === mySeat ? "YOU" : `PLAYER ${seat + 1}`
+}
 
 // Why the round ended. When both of them went the same way there is one thing
 // to say; otherwise each of the fallen says its own.
-function crashLine(versus, seat) {
-  const [first, second] = versus.players
-  if (first.reason && first.reason === second.reason) {
-    return CRASH_REASONS[first.reason] || "both at once"
-  }
-  return versus.players
-    .map((player, index) =>
-      player.alive ? null : `${versusName(index, seat)} — ${CRASH_REASONS[player.reason] || "out"}`)
-    .filter(Boolean)
+function crashLine(versus, seat, view) {
+  const fallen = versus.seated.filter(player => !player.alive)
+  if (!fallen.length) return ""
+  // When they all went the same way there is one thing to say.
+  const reasons = new Set(fallen.map(player => player.reason))
+  if (reasons.size === 1) return CRASH_REASONS[fallen[0].reason] || "all at once"
+  return fallen
+    .map(player => `${versusName(player.seat, seat, view?.names)} — ${CRASH_REASONS[player.reason] || "out"}`)
     .join("   ·   ")
 }
 
@@ -1343,17 +1391,19 @@ function drawVersusOverlay(ctx, view, width, height) {
     // "ROUND TO YOU" rather than "YOU WIN THE ROUND", because the same
     // sentence has to work for "THEM" and for "PLAYER 2" without the verb
     // changing under it.
-    title = winner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(winner, seat)}`
-    subtitle = crashLine(versus, seat)
+    title = winner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(winner, seat, view.names)}`
+    subtitle = crashLine(versus, seat, view)
   } else if (versus.phase === "matchOver") {
-    title = `MATCH TO ${versusName(versus.matchWinner, seat)}`
+    title = `MATCH TO ${versusName(versus.matchWinner, seat, view.names)}`
     subtitle = view.rematchNote || "Space for a rematch"
   }
 
   // The tally, spelled out rather than left to the strip above the board:
   // fullscreen or not, the thing being looked at is the board.
   if (versus.phase !== "lobby") {
-    note = `${versusName(0, seat)} ${versus.players[0].wins} — ${versus.players[1].wins} ${versusName(1, seat)}`
+    note = versus.seated
+      .map(player => `${versusName(player.seat, seat, view.names)} ${player.wins}`)
+      .join("   ·   ")
   }
 
   const lines = subtitle ? wrap(ctx, subtitle, width - 36, 13) : []
@@ -1393,30 +1443,49 @@ function drawVersusOverlay(ctx, view, width, height) {
 // on a narrow one — and a caption has to go where its board went.
 const LANE_LABEL = 22
 
-// Where the two boards sit. `orientation` is decided by whichever arrangement
-// gives the bigger cell, which on a phone held upright is stacking them.
-export function raceLayout(cell, columns, rows, orientation = "side") {
+// Where the boards sit. `across` is how many of them fit on a row, which the
+// caller picks by trying every arrangement and keeping whichever leaves the
+// biggest cell — two side by side on a wide screen, two stacked on a phone
+// held upright, and two by two for three or four of them.
+export function raceLayout(cell, columns, rows, across = 2, count = 2) {
   const gap = Math.max(6, cell)
   const boardW = columns * cell
   const boardH = rows * cell
   const laneH = boardH + LANE_LABEL
+  const wide = Math.max(1, Math.min(across, count))
+  const down = Math.ceil(count / wide)
 
-  if (orientation === "stacked") {
-    return {
-      width: boardW,
-      height: laneH * 2 + gap,
-      boardW,
-      boardH,
-      lanes: [{ x: 0, y: 0 }, { x: 0, y: laneH + gap }]
-    }
+  const lanes = []
+  for (let index = 0; index < count; ++index) {
+    lanes.push({
+      x: (index % wide) * (boardW + gap),
+      y: Math.floor(index / wide) * (laneH + gap)
+    })
   }
   return {
-    width: boardW * 2 + gap,
-    height: laneH,
+    width: wide * boardW + (wide - 1) * gap,
+    height: down * laneH + (down - 1) * gap,
     boardW,
     boardH,
-    lanes: [{ x: 0, y: 0 }, { x: boardW + gap, y: 0 }]
+    lanes
   }
+}
+
+// Which arrangement to use, and how big a cell it allows. Every split of the
+// boards across rows is tried and the roomiest wins; nothing here knows or
+// cares whether the screen is a phone.
+export function raceFit(count, frameWidth, frameHeight, columns, rows) {
+  let best = { cell: 0, across: 1 }
+  for (let across = 1; across <= count; ++across) {
+    const down = Math.ceil(count / across)
+    // A gap of one cell between boards, and a caption over each of them worth
+    // about one and a half more.
+    const byWidth = Math.floor(frameWidth / (across * columns + (across - 1)))
+    const byHeight = Math.floor(frameHeight / (down * rows + (down - 1) + down * 1.5))
+    const cell = Math.min(byWidth, byHeight)
+    if (cell > best.cell) best = { cell, across }
+  }
+  return best
 }
 
 // A lane has no tweens of its own — the bursts and fades belong to a single
@@ -1488,28 +1557,39 @@ function drawPartyHat(ctx, { x, y, size, theme }) {
 }
 
 export function drawRace(ctx, view) {
-  const { race, theme, cell, orientation } = view
+  const { race, theme, cell } = view
   const colors = theme.colors
-  const layout = raceLayout(cell, race.columns, race.rows, orientation)
+  const lanes = race.seated
+  const layout = raceLayout(cell, race.columns, race.rows, view.across, lanes.length)
   const seat = view.seat
   const start = setStartLevel(race.round)
   const boss = setBossLevel(race.round)
 
   ctx.clearRect(0, 0, layout.width, layout.height)
 
-  race.players.forEach((lane, index) => {
+  lanes.forEach((lane, index) => {
     const spot = layout.lanes[index]
     const top = spot.y + LANE_LABEL
-    const skin = versusSkin(theme, index)
+    const skin = versusSkin(theme, lane.seat)
     const game = lane.game
 
     // --- the caption ---
 
-    label(ctx, versusName(index, seat), spot.x, spot.y + 12, 12, skin.body, { align: "left" })
+    label(ctx, versusName(lane.seat, seat, view.names), spot.x, spot.y + 12, 12, skin.body, { align: "left" })
     label(ctx, `LEVEL ${levelName(game.displayedLevel)}`, spot.x + layout.boardW, spot.y + 12, 12,
       rgba(colors.foreground, 0.75), { align: "right" })
-    const pips = "●".repeat(lane.wins) + "○".repeat(Math.max(0, race.winsNeeded - lane.wins))
-    label(ctx, pips, spot.x + layout.boardW / 2, spot.y + 12, 11, rgba(colors.foreground, 0.6))
+
+    // The middle of a caption is the wins, unless a combo is running, in which
+    // case it is the combo: a multiplier nobody can see is a multiplier nobody
+    // is playing for.
+    if (lane.party && game.foodMultiplier > 1) {
+      label(ctx, `${partyComboName(game.foodMultiplier)} ×${game.foodMultiplier}`,
+        spot.x + layout.boardW / 2, spot.y + 12, 11, theme.accent)
+    } else {
+      const pips = "●".repeat(lane.wins) + "○".repeat(Math.max(0, race.winsNeeded - lane.wins))
+      label(ctx, pips, spot.x + layout.boardW / 2, spot.y + 12, 11, rgba(colors.foreground, 0.6))
+    }
+
 
     // --- the board, drawn by the game's own renderer ---
 
@@ -1517,11 +1597,14 @@ export function drawRace(ctx, view) {
     ctx.translate(spot.x, top)
     draw(ctx, {
       game,
-      music: view.musicFor(index),
+      music: view.musicFor(lane.seat),
       theme,
-      fx: view.effectsFor(index),
+      fx: view.effectsFor(lane.seat),
       cell,
       foods: view.foods,
+      // Which of the four this is, and the face its player picked.
+      skin,
+      head: lane.head,
       levelMessage: "",
       gameOverMessage: "",
       bossNumber: bossNumber(game.displayedLevel),
@@ -1556,7 +1639,7 @@ export function drawRace(ctx, view) {
     const bar = 3
     const y = top + layout.boardH - bar - 2
     fillRound(ctx, spot.x + 3, y, layout.boardW - 6, bar, bar / 2, rgba(colors.foreground, 0.16))
-    const width = (layout.boardW - 6) * race.progressOf(index)
+    const width = (layout.boardW - 6) * race.progressOf(lane.seat)
     if (width > 0) fillRound(ctx, spot.x + 3, y, width, bar, bar / 2, skin.body)
   })
 
@@ -1573,16 +1656,18 @@ function drawRaceOverlay(ctx, view, layout) {
     title = `ROUND ${race.round}`
     subtitle = view.hint || `levels ${levelName(setStartLevel(race.round))} to ${levelName(setBossLevel(race.round))}`
   } else if (race.phase === "roundOver") {
-    title = race.roundWinner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(race.roundWinner, seat)}`
+    title = race.roundWinner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(race.roundWinner, seat, view.names)}`
     subtitle = race.roundWinner === -1
       ? "neither of them got there"
       : `${levelName(setBossLevel(race.round))} cleared first`
   } else if (race.phase === "matchOver") {
-    title = `MATCH TO ${versusName(race.matchWinner, seat)}`
+    title = `MATCH TO ${versusName(race.matchWinner, seat, view.names)}`
     subtitle = view.rematchNote || "Space for a rematch"
   } else return
 
-  const note = `${versusName(0, seat)} ${race.players[0].wins} — ${race.players[1].wins} ${versusName(1, seat)}`
+  const note = race.seated
+    .map(lane => `${versusName(lane.seat, seat, view.names)} ${lane.wins}`)
+    .join("   ·   ")
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.72)"
   ctx.fillRect(0, 0, layout.width, layout.height)

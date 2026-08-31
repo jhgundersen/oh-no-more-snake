@@ -259,25 +259,43 @@
 			display: flex;
 		}
 
-		.vs-side {
+		#versus-head {
+			flex-wrap: wrap;
+		}
+
+		.vs-players {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: baseline;
+			gap: 14px;
+		}
+
+		.vs-chip {
 			display: flex;
 			align-items: baseline;
-			gap: 8px;
+			gap: 6px;
 		}
 
 		.vs-name {
-			font-size: 20px;
+			font-size: 17px;
 			font-weight: 700;
 			letter-spacing: 0.02em;
 		}
 
-		/* The same two colours the two snakes wear, so the strip and the board
-		   agree about who is who without a legend. */
-		#vs-name-0 {
+		/* The same colours the snakes wear, so the strip and the board agree
+		   about who is who without a legend. Two shapes against two colours is
+		   four snakes, and four is all the board can honestly tell apart. */
+		.seat-0 .vs-name,
+		.seat-2 .vs-name,
+		.seat-0 .seat-who,
+		.seat-2 .seat-who {
 			color: var(--accent);
 		}
 
-		#vs-name-1 {
+		.seat-1 .vs-name,
+		.seat-3 .vs-name,
+		.seat-1 .seat-who,
+		.seat-3 .seat-who {
 			color: var(--fg);
 		}
 
@@ -369,6 +387,56 @@
 			border-radius: 8px;
 		}
 
+		.lobby-choices {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 14px;
+			align-items: center;
+		}
+
+		.choice {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+		}
+
+		.choice-label {
+			font-size: 11px;
+			color: var(--muted);
+		}
+
+		.choice-options {
+			display: flex;
+			gap: 4px;
+		}
+
+		.choice-options button {
+			width: 26px;
+			height: 26px;
+			padding: 0;
+			font-size: 12px;
+			border-radius: 7px;
+			background: transparent;
+			border-color: var(--muted);
+			color: var(--muted);
+		}
+
+		.choice-options button:hover:not([disabled]) {
+			background: var(--combo-trough);
+			color: var(--fg);
+		}
+
+		.choice-options button[aria-pressed="true"] {
+			background: var(--accent);
+			border-color: var(--button-border);
+			color: var(--bg);
+		}
+
+		.choice-options button[disabled] {
+			opacity: 0.5;
+			cursor: default;
+		}
+
 		.lobby-modes {
 			display: flex;
 			gap: 8px;
@@ -423,7 +491,16 @@
 
 		.lobby-seats {
 			display: flex;
+			flex-wrap: wrap;
 			gap: 8px;
+		}
+
+		.seat {
+			flex: 1 1 44%;
+		}
+
+		.seat.empty {
+			opacity: 0.6;
 		}
 
 		.seat {
@@ -501,6 +578,12 @@
 
 		/* Party Mode is per player in a race, which it is nowhere else in this
 		   game, so it gets a control of its own rather than a corner of one. */
+		.seat-keys {
+			font-size: 10px;
+			color: var(--muted);
+			letter-spacing: 0.04em;
+		}
+
 		.seat-party {
 			height: 28px;
 			padding: 0 10px;
@@ -987,17 +1070,10 @@
 		     than sitting under it: a match has no level, no best and no clock,
 		     and two of everything else. -->
 		<div id="versus-head">
-			<div class="vs-side">
-				<span class="vs-name" id="vs-name-0">P1</span>
-				<span class="vs-pips" id="vs-pips-0"></span>
-				<span class="vs-apples" id="vs-apples-0"></span>
-			</div>
 			<div class="vs-middle" id="vs-middle">READY</div>
-			<div class="vs-side vs-right">
-				<span class="vs-apples" id="vs-apples-1"></span>
-				<span class="vs-pips" id="vs-pips-1"></span>
-				<span class="vs-name" id="vs-name-1">P2</span>
-			</div>
+			<!-- One chip per player, built by web.js: there may be two of them
+			     or four. -->
+			<div class="vs-players" id="vs-players"></div>
 		</div>
 
 		<div id="meters">
@@ -1019,6 +1095,17 @@
 					<div class="lobby-invite" id="lobby-invite">
 						<input id="lobby-link" type="text" readonly aria-label="Link to this room">
 						<button type="button" id="lobby-copy">Copy</button>
+					</div>
+				</div>
+
+				<div class="lobby-choices">
+					<div class="choice" id="choice-players">
+						<span class="choice-label">Players</span>
+						<div class="choice-options" id="players-options" role="group" aria-label="How many players"></div>
+					</div>
+					<div class="choice">
+						<span class="choice-label">First to</span>
+						<div class="choice-options" id="wins-options" role="group" aria-label="Rounds to win"></div>
 					</div>
 				</div>
 

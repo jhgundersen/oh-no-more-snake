@@ -16,10 +16,20 @@ import {
   boardSize,
   laneEffects,
   laneMusic,
+  raceFit,
   raceLayout
 } from "./Draw.js"
 import { Net, newRoomCode, roomLink, validCode } from "./Net.js"
-import { HEADS, PHASE_MATCH_OVER, PHASE_PLAYING, Versus, validHead } from "./Versus.js"
+import {
+  HEADS,
+  MAX_SEATS,
+  MIN_SEATS,
+  PHASE_MATCH_OVER,
+  PHASE_PLAYING,
+  Versus,
+  DEFAULT_HEADS,
+  validHead
+} from "./Versus.js"
 import { RACE_COLUMNS, RACE_ROWS, Race, setBossLevel } from "./Race.js"
 import { FATALITIES, bossFor } from "./Bosses.js"
 import { gameOverMessages, levelMessages, partyComboName, pickDifferent } from "./Messages.js"
@@ -517,7 +527,7 @@ music.on("onset", () => foodBeatIn.restart())
 music.on("enabledChanged", () => {
   game.setPartyMode(music.enabled)
   if (music.enabled) {
-    startSplash("party")
+    if (!twoPlayer()) startSplash("party")
   } else {
     if (waitingForLevelBeat) {
       waitingForLevelBeat = false
@@ -570,7 +580,7 @@ addEventListener("keydown", event => {
   // single-player switches, which would be somebody changing the rules of a
   // match somebody else is in the middle of.
   if (twoPlayer()) {
-    if (versusKey(event.key)) event.preventDefault()
+    if (versusKey(event)) event.preventDefault()
     updateHud()
     return
   }
@@ -827,11 +837,11 @@ el("charts-close").addEventListener("click", closeCharts)
 
 // --- two players -------------------------------------------------------------
 
-// Two games live here. A duel puts both snakes on one board and lets them ruin
-// each other; a race gives them a board each and sends them up the levels.
-// Both models present the same handful of methods, so almost everything below
-// is written once and `matchMode` only decides which one gets built and which
-// draw call paints it.
+// Two games live here, for two to four players. A duel puts every snake on one
+// board and lets them ruin each other; a race gives each a board of its own and
+// sends them up the levels. Both models present the same handful of methods, so
+// almost everything below is written once and `matchMode` only decides which
+// one gets built and which draw call paints it.
 //
 // While either is up the single-player game is simply not running: nothing
 // ticks it, nothing draws it, and nothing it did not do can reach its best
@@ -843,8 +853,9 @@ let matchMode = "race"
 let versusKind = null
 let versusSeat = null
 let net = null
-// Side by side where there is width for it, stacked where there is not.
-let raceOrientation = "side"
+// How many race boards fit on a row. Decided by whichever arrangement leaves
+// the biggest cell, which on a phone held upright is one.
+let raceAcross = 2
 
 // The lobby is what is on screen before a board is. Online it is the room's,
 // arriving as a message; at one keyboard it is built here and never leaves.
@@ -863,23 +874,33 @@ const chatLog = el("chat-log")
 const twoPlayer = () => inLobby || match !== null
 const online = () => versusKind === "online"
 
+// Which seats are in the match. Online the room decides; at one keyboard it is
+// however many people said they were here.
+const localPresence = () => SEATS.map(seat => seat < hotseatCount)
+const seatCount = () => (match ? match.seated.length : online() ? MAX_SEATS : hotseatCount)
+
 // --- what each seat looks like and is called ---
 
 const headKey = seat => `omasnake/versus/head${seat}`
 const nickKey = seat => `omasnake/versus/nick${seat}`
 
-const versusHeads = [0, 1].map(seat => {
+const SEATS = [...Array(MAX_SEATS).keys()]
+const versusHeads = SEATS.map(seat => {
   const stored = store.getItem(headKey(seat))
-  return stored === null ? (seat === 0 ? 0 : 3) : validHead(stored)
+  return stored === null ? DEFAULT_HEADS[seat % DEFAULT_HEADS.length] : validHead(stored)
 })
-const versusNicks = [0, 1].map(seat => store.getItem(nickKey(seat)) || "")
+const versusNicks = SEATS.map(seat => store.getItem(nickKey(seat)) || "")
 const partyKey = seat => `omasnake/versus/party${seat}`
-const versusParty = [0, 1].map(seat => store.getItem(partyKey(seat)) === "true")
+const versusParty = SEATS.map(seat => store.getItem(partyKey(seat)) === "true")
+// How many players are at this keyboard, and how many rounds the match is.
+let hotseatCount = Math.min(MAX_SEATS, Math.max(MIN_SEATS,
+  Number(store.getItem("omasnake/versus/players")) || MIN_SEATS))
+let winsNeeded = Math.min(5, Math.max(1, Number(store.getItem("omasnake/versus/wins")) || 3))
 
 // One set of still effects per lane, made once. A race draws two boards with
 // the single-player renderer, and it wants two of everything that renderer
 // reads — but none of the tweens, which belong to one board being watched.
-const laneFx = [laneEffects(), laneEffects()]
+const laneFx = SEATS.map(() => laneEffects())
 
 function remember(key, value) {
   try {
@@ -956,9 +977,9 @@ function startHotseat() {
   lobbyState = {
     mode: matchMode,
     spectators: 0,
-    players: [0, 1].map(seat => ({
+    players: SEATS.map(seat => ({
       seat,
-      here: true,
+      here: seat < hotseatCount,
       nick: versusNicks[seat],
       head: versusHeads[seat],
       party: versusParty[seat],
@@ -966,13 +987,14 @@ function startHotseat() {
     }))
   }
   renderLobby()
-  announce("Two players at one keyboard. Pick a face each, then start.")
+  announce("Players at one keyboard. Pick how many, a face each, then start.")
 }
 
 function startLocalMatch() {
   match = makeMatch()
+  match.setPresent(localPresence())
   match.startMatch()
-  for (const seat of [0, 1]) {
+  for (const seat of SEATS) {
     match.setHead(seat, versusHeads[seat])
     match.setParty?.(seat, versusParty[seat])
   }
@@ -983,12 +1005,28 @@ function startLocalMatch() {
 }
 
 function makeMatch() {
-  const model = matchMode === "race"
-    ? new Race({ wrap: game.wallsWrap })
-    : new Versus({ wrap: game.wallsWrap })
+  const options = { wrap: game.wallsWrap, winsNeeded, present: localPresence() }
+  const model = matchMode === "race" ? new Race(options) : new Versus(options)
   model.on("roundOver", winner => announceRound(winner))
   model.on("matchOver", winner => announce(`${versusLabel(winner)} wins the match.`))
+  // A bonus nobody sees is a bonus nobody plays for, and a lane has no tweens
+  // of its own, so the burst is set here and decayed by the frame loop.
+  model.on("bonus", (seat, name, points) => showLaneBonus(seat, `+${points} ${name}`))
   return model
+}
+
+// The one animated thing a lane has. `draw` already knows how to paint it — it
+// is the same burst Party Mode uses for a bonus in a single-player run.
+function showLaneBonus(seat, text) {
+  const lane = laneFx[seat]
+  if (!lane) return
+  const player = match?.players?.[seat]
+  const head = (matchMode === "race" ? player?.game?.snake?.[0] : player?.snake?.[0]) || { x: 0, y: 0 }
+  lane.partyBonusText = text
+  lane.nearMissKind = "bonus"
+  lane.nearMissX = head.x
+  lane.nearMissY = head.y
+  lane.nearMissBurst = 0
 }
 
 function announceRound(winner) {
@@ -1020,6 +1058,7 @@ function joinRoom(code) {
       if (versusSeat !== null) {
         net.setHead(versusHeads[versusSeat])
         net.setParty(versusParty[versusSeat])
+        if (versusSeat === 0) net.setWins(winsNeeded)
         if (versusNicks[versusSeat]) net.setNick(versusNicks[versusSeat])
       }
       renderLobby()
@@ -1094,11 +1133,29 @@ function createRoom() {
 const HEAD_PREVIEW = 30
 const seatNodes = []
 
+function buildChoice(box, values, choose) {
+  box.replaceChildren()
+  return values.map(value => {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.textContent = String(value)
+    button.addEventListener("click", () => choose(value))
+    box.append(button)
+    return { button, value }
+  })
+}
+
+let playerChoices = []
+let winsChoices = []
+
 function buildLobby() {
+  playerChoices = buildChoice(el("players-options"), [2, 3, 4], choosePlayers)
+  winsChoices = buildChoice(el("wins-options"), [1, 2, 3, 4, 5], chooseWins)
+
   lobbySeats.replaceChildren()
   seatNodes.length = 0
 
-  for (const seat of [0, 1]) {
+  for (const seat of SEATS) {
     const card = document.createElement("div")
     card.className = `seat seat-${seat}`
 
@@ -1132,6 +1189,11 @@ function buildLobby() {
     party.className = "seat-party"
     party.addEventListener("click", () => chooseParty(seat, !versusParty[seat]))
 
+    // Which keys this seat steers with, which is worth saying once where the
+    // player is choosing their name rather than nowhere at all.
+    const keys = document.createElement("span")
+    keys.className = "seat-keys"
+
     const options = document.createElement("div")
     options.className = "heads-options"
     const heads = HEADS.map((style, index) => {
@@ -1148,9 +1210,9 @@ function buildLobby() {
       return { button, canvas }
     })
 
-    card.append(top, input, name, options, party)
+    card.append(top, input, name, options, party, keys)
     lobbySeats.append(card)
-    seatNodes.push({ card, who, state, input, name, heads, party })
+    seatNodes.push({ card, who, state, input, name, heads, party, keys })
   }
   paintHeads()
 }
@@ -1188,8 +1250,35 @@ let nickTimer = 0
 function chooseParty(seat, on) {
   versusParty[seat] = !!on
   remember(partyKey(seat), versusParty[seat])
+  // Party Mode has meant music since the desktop version, and a party with no
+  // music is most of the point missing. The click that asked for it is the
+  // gesture playback needs, so this is the one moment it can be started from.
+  if (versusParty[seat] && !music.enabled) music.toggle()
   if (online()) net?.setParty(versusParty[seat])
   else if (lobbyState?.players?.[seat]) lobbyState.players[seat].party = versusParty[seat]
+  renderLobby()
+}
+
+function chooseWins(count) {
+  winsNeeded = Math.min(5, Math.max(1, count))
+  remember("omasnake/versus/wins", winsNeeded)
+  if (online()) net?.setWins(winsNeeded)
+  renderLobby()
+}
+
+function choosePlayers(count) {
+  hotseatCount = Math.min(MAX_SEATS, Math.max(MIN_SEATS, count))
+  remember("omasnake/versus/players", hotseatCount)
+  if (lobbyState) {
+    lobbyState.players = SEATS.map(seat => ({
+      seat,
+      here: seat < hotseatCount,
+      nick: versusNicks[seat],
+      head: versusHeads[seat],
+      party: versusParty[seat],
+      ready: false
+    }))
+  }
   renderLobby()
 }
 
@@ -1218,15 +1307,35 @@ function renderLobby() {
     button.disabled = isOnline && versusSeat !== 0
   }
 
-  const players = lobbyState?.players || [0, 1].map(seat => ({
-    seat, here: !isOnline, nick: versusNicks[seat], head: versusHeads[seat], ready: false
+  const players = lobbyState?.players || SEATS.map(seat => ({
+    seat,
+    here: !isOnline && seat < hotseatCount,
+    nick: versusNicks[seat],
+    head: versusHeads[seat],
+    party: versusParty[seat],
+    ready: false
   }))
+
+  // How many are playing is a decision only somebody at the keyboard makes;
+  // online it is however many turned up. Rounds are the first seat's call.
+  el("choice-players").hidden = isOnline
+  for (const { button, value } of playerChoices) {
+    button.setAttribute("aria-pressed", String(value === hotseatCount))
+  }
+  const rounds = lobbyState?.winsNeeded ?? winsNeeded
+  for (const { button, value } of winsChoices) {
+    button.setAttribute("aria-pressed", String(value === rounds))
+    button.disabled = isOnline && versusSeat !== 0
+  }
 
   seatNodes.forEach((nodes, seat) => {
     const player = players[seat]
-    const mine = !isOnline || seat === versusSeat
+    const mine = (!isOnline && player.here) || (isOnline && seat === versusSeat)
 
-    nodes.card.className = `seat seat-${seat}${player.ready ? " ready" : ""}`
+    // A seat nobody is in still shows, so it is obvious there is room.
+    nodes.card.hidden = !isOnline && !player.here
+    nodes.card.className = `seat seat-${seat}${player.ready ? " ready" : ""}${player.here ? "" : " empty"}`
+    nodes.keys.textContent = player.here && !isOnline ? SEAT_KEY_NAMES[seat] : ""
     nodes.who.textContent = isOnline
       ? (seat === versusSeat ? `P${seat + 1} — YOU` : `P${seat + 1}`)
       : `PLAYER ${seat + 1}`
@@ -1249,9 +1358,9 @@ function renderLobby() {
       button.disabled = !mine
     })
 
-    // Only a race has one. A duel is the same game for both of them.
+    // Only a race has one. A duel is the same game for all of them.
     const partyOn = mine ? versusParty[seat] : !!player.party
-    nodes.party.hidden = matchMode !== "race"
+    nodes.party.hidden = matchMode !== "race" || !player.here
     nodes.party.disabled = !mine
     nodes.party.setAttribute("aria-pressed", String(partyOn))
     nodes.party.textContent = partyOn ? "🎉 Party Mode on" : "Party Mode off"
@@ -1260,10 +1369,15 @@ function renderLobby() {
   const ready = el("lobby-ready")
   if (isOnline) {
     const mine = versusSeat === null ? null : players[versusSeat]
+    const here = players.filter(player => player.here).length
     ready.hidden = versusSeat === null
-    ready.textContent = mine?.ready ? "Not ready" : "Ready"
+    ready.disabled = here < MIN_SEATS
+    ready.textContent = here < MIN_SEATS
+      ? "Waiting for a second player"
+      : mine?.ready ? "Not ready" : "Ready"
   } else {
     ready.hidden = false
+    ready.disabled = false
     ready.textContent = "Start"
   }
 }
@@ -1289,16 +1403,21 @@ function addChatLine(entry) {
 
 // --- steering ---
 
-// Arrows and vi keys are the first seat's; W A S D is the second's. Online
-// there is only one snake to steer and both sets steer it, because insisting
-// on one of them would be a rule with nothing behind it.
-const VERSUS_FIRST = new Map([
-  ["ArrowLeft", [-1, 0]], ["ArrowRight", [1, 0]], ["ArrowUp", [0, -1]], ["ArrowDown", [0, 1]],
-  ["h", [-1, 0]], ["l", [1, 0]], ["k", [0, -1]], ["j", [0, 1]]
-])
-const VERSUS_SECOND = new Map([
-  ["a", [-1, 0]], ["d", [1, 0]], ["w", [0, -1]], ["s", [0, 1]]
-])
+// One set of keys per seat at the same keyboard: arrows, W A S D, I J K L and
+// the number pad. The vi keys the single-player game steers with are not among
+// them — `j`, `k` and `l` belong to the third player here, and a run is the
+// place to keep them. Online there is one snake to steer and the first two
+// sets both steer it, because insisting on one would be a rule with nothing
+// behind it.
+const SEAT_KEYS = [
+  new Map([["ArrowLeft", [-1, 0]], ["ArrowRight", [1, 0]], ["ArrowUp", [0, -1]], ["ArrowDown", [0, 1]]]),
+  new Map([["a", [-1, 0]], ["d", [1, 0]], ["w", [0, -1]], ["s", [0, 1]]]),
+  new Map([["j", [-1, 0]], ["l", [1, 0]], ["i", [0, -1]], ["k", [0, 1]]]),
+  // By `code`, because a number pad reports whatever Num Lock felt like.
+  new Map([["Numpad4", [-1, 0]], ["Numpad6", [1, 0]], ["Numpad8", [0, -1]], ["Numpad5", [0, 1]]])
+]
+
+const SEAT_KEY_NAMES = ["arrows", "W A S D", "I J K L", "number pad"]
 
 const touchSeat = () => (online() ? versusSeat : 0)
 
@@ -1346,17 +1465,18 @@ function pressReady() {
   net?.setReady(!mine?.ready)
 }
 
-function versusKey(key) {
+function versusKey(event) {
+  const key = event.key
   const lower = key.length === 1 ? key.toLowerCase() : key
   if (!inLobby) {
-    const first = VERSUS_FIRST.get(lower)
-    if (first) {
-      steerVersus(online() ? versusSeat : 0, first[0], first[1])
-      return true
-    }
-    const second = VERSUS_SECOND.get(lower)
-    if (second) {
-      steerVersus(online() ? versusSeat : 1, second[0], second[1])
+    for (let seat = 0; seat < SEAT_KEYS.length; ++seat) {
+      const turn = SEAT_KEYS[seat].get(lower) || SEAT_KEYS[seat].get(event.code)
+      if (!turn) continue
+      // Online every set of keys is yours, because only one snake is.
+      if (online()) {
+        if (seat > 1) continue
+        steerVersus(versusSeat, turn[0], turn[1])
+      } else steerVersus(seat, turn[0], turn[1])
       return true
     }
   }
@@ -1368,8 +1488,13 @@ function versusKey(key) {
     pauseIfRunning()
     return true
   }
-  // The two switches that are about this screen rather than about the match.
+  // The switches that are about this screen rather than about the match. The
+  // music is among them now that Party Mode is a lobby choice rather than the
+  // music button: a party with nothing playing is most of the point missing,
+  // and there has to be a way to start it without leaving the game.
   switch (lower) {
+    case "p": music.toggle(); return true
+    case "n": music.nextTrack(); return true
     case "t": cycleTheme(); return true
     case "v": toggleFullscreen(); return true
     case "2": leaveTwoPlayer(); return true
@@ -1386,6 +1511,10 @@ function advanceVersus(delta) {
   if (online()) return
 
   match.step(delta)
+  // Bursts fade on their own clock, the way the single-player tweens do.
+  for (const lane of laneFx) {
+    if (lane.nearMissBurst < 1) lane.nearMissBurst = Math.min(1, lane.nearMissBurst + delta / 750)
+  }
 }
 
 function versusView() {
@@ -1397,7 +1526,8 @@ function versusView() {
     cell,
     foods,
     fatalities: FATALITIES,
-    orientation: raceOrientation,
+    across: raceAcross,
+    names: SEATS.map(seat => lobbyState?.players?.[seat]?.nick || ""),
     foodStyleIndex: game.foodStyleIndex,
     seat: isOnline ? versusSeat : null,
     // A lane draws with the single-player renderer, so it needs the two things
@@ -1430,18 +1560,36 @@ function updateVersusHud() {
   else if (matchMode === "race") middle.textContent = `ROUND ${match.round} — TO ${levelName(setBossLevel(match.round))}`
   else middle.textContent = `ROUND ${match.round}`
 
-  for (const seat of [0, 1]) {
-    const player = match?.players[seat]
-    el(`vs-name-${seat}`).textContent = versusLabel(seat).toUpperCase().slice(0, 12)
-    el(`vs-pips-${seat}`).textContent = match ? pips(player.wins, match.winsNeeded) : ""
-    // A duel counts apples this round; a race counts the level reached, which
-    // is the number the players are actually watching.
-    el(`vs-apples-${seat}`).textContent = !match
-      ? ""
-      : matchMode === "race"
-        ? `${levelName(player.game.displayedLevel)}${player.party ? " 🎉" : ""}`
-        : (player.score || "")
+  const players = match ? match.seated : []
+  const board = el("vs-players")
+  // One chip per seat that is playing, rebuilt only when their number changes.
+  if (board.childElementCount !== players.length) {
+    board.replaceChildren()
+    for (const player of players) {
+      const chip = document.createElement("div")
+      chip.className = `vs-chip seat-${player.seat}`
+      const name = document.createElement("span")
+      name.className = "vs-name"
+      const pips = document.createElement("span")
+      pips.className = "vs-pips"
+      const extra = document.createElement("span")
+      extra.className = "vs-apples"
+      chip.append(name, pips, extra)
+      board.append(chip)
+    }
   }
+  players.forEach((player, index) => {
+    const chip = board.children[index]
+    if (!chip) return
+    chip.className = `vs-chip seat-${player.seat}`
+    chip.children[0].textContent = versusLabel(player.seat).toUpperCase().slice(0, 10)
+    chip.children[1].textContent = pips(player.wins, match.winsNeeded)
+    // A duel counts apples this round; a race counts the level reached, which
+    // is the number its players are actually watching.
+    chip.children[2].textContent = matchMode === "race"
+      ? `${levelName(player.game.displayedLevel)}${player.party ? " 🎉" : ""}`
+      : (player.score || "")
+  })
 }
 
 // --- wiring ---
@@ -1670,29 +1818,24 @@ function resize() {
     let byHeight = Math.floor(frame.clientHeight / rows)
 
     if (racing) {
-      // Two boards, and a gap of one cell between them. Whichever arrangement
-      // leaves the bigger cell is the one used, which on a phone held upright
-      // means stacking them rather than shrinking them to nothing.
-      const side = Math.min(
-        Math.floor(frame.clientWidth / (columns * 2 + 1)),
-        Math.floor(frame.clientHeight / rows))
-      const stacked = Math.min(
-        Math.floor(frame.clientWidth / columns),
-        Math.floor(frame.clientHeight / (rows * 2 + 1)))
-      raceOrientation = stacked > side ? "stacked" : "side"
-      byWidth = Math.max(side, stacked)
-      byHeight = byWidth
+      // Two to four boards with a gap of a cell between them. Every way of
+      // splitting them across rows is tried and the roomiest wins, which on a
+      // phone held upright is one board per row rather than four squints.
+      const fit = raceFit(match.seated.length, frame.clientWidth, frame.clientHeight, columns, rows)
+      raceAcross = fit.across
+      byWidth = fit.cell
+      byHeight = fit.cell
     }
 
     cell = Math.max(floor, Math.min(largest, Math.min(byWidth, byHeight)))
     const wide = racing
-      ? raceLayout(cell, columns, rows, raceOrientation).width
+      ? raceLayout(cell, columns, rows, raceAcross, match.seated.length).width
       : columns * cell
     document.documentElement.style.setProperty("--board-w", `${wide}px`)
   }
 
   const { width, height } = racing
-    ? raceLayout(cell, columns, rows, raceOrientation)
+    ? raceLayout(cell, columns, rows, raceAcross, match.seated.length)
     : boardSize(cell, columns, rows)
   const ratio = Math.min(3, devicePixelRatio || 1)
   canvas.width = Math.round(width * ratio)

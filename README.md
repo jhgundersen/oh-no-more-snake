@@ -108,8 +108,9 @@ Each seat also picks a face — wide, slit, visor, fierce, cyclops or sleepy.
 They differ in the eyes and nothing else, because a horn or a crest is a bump
 at the ten pixels a head actually is. Names and faces are remembered.
 
-**Same keyboard.** Player one steers with the arrows or `hjkl`, player two with
-`wasd`. No chat and no link, for obvious reasons.
+**Same keyboard.** One set of keys per seat: the arrows, `wasd`, `ijkl` and the
+number pad (`8456`). The vi keys a run steers with are not among them, because
+`jkl` belong to the third player here. No chat and no link, for obvious reasons.
 
 **Online.** *Create a room* gives you a lobby with a link to send. Whoever
 opens it takes the other seat; anyone after that watches and can still talk.

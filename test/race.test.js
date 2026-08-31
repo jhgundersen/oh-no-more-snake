@@ -41,7 +41,7 @@ function pump(race, ms, chunk = 20) {
   for (let elapsed = 0; elapsed < ms; elapsed += chunk) race.step(chunk)
 }
 
-const levelsOf = race => race.players.map(lane => lane.game.displayedLevel)
+const levelsOf = race => race.seated.map(lane => lane.game.displayedLevel)
 
 // --- rounds are sets --------------------------------------------------------
 
@@ -274,7 +274,7 @@ test("a race nobody is trying to win is eventually a draw", () => {
   pump(race, 5 * 60 * 1000 + 1000, 500)
   assert.equal(race.phase, PHASE_ROUND_OVER)
   assert.equal(race.roundWinner, DRAW)
-  assert.deepEqual(race.players.map(lane => lane.wins), [0, 0])
+  assert.deepEqual(race.seated.map(lane => lane.wins), [0, 0])
 })
 
 test("the pace follows whichever lane is next due", () => {
@@ -333,4 +333,94 @@ test("progress counts levels through the set", () => {
   assert.ok(race.progressOf(0) >= 0.4 && race.progressOf(0) < 0.7)
   race.players[0].finished = true
   assert.equal(race.progressOf(0), 1)
+})
+
+// --- more than two lanes -------------------------------------------------------
+
+const foursome = (options = {}) => {
+  const race = new Race({ present: [true, true, true, true], ...options })
+  race.startMatch()
+  race.step(COUNTDOWN_MS)
+  return race
+}
+
+test("an empty seat gets no board and no clock", () => {
+  const race = new Race()
+  race.startMatch()
+  assert.equal(race.players.length, 4)
+  assert.deepEqual(race.players.map(lane => lane.present), [true, true, false, false])
+  assert.equal(race.seated.length, 2)
+  assert.equal(race.players[2].game.snake.length, 0)
+  assert.equal(race.turn(2, 0, 1), false)
+  assert.equal(race.registerBeat(2, 1), false)
+})
+
+test("four lanes all start the set together", () => {
+  const race = foursome()
+  assert.equal(race.seated.length, 4)
+  for (const lane of race.seated) {
+    assert.equal(levelName(lane.game.displayedLevel), "1.1")
+    assert.equal(lane.game.snake.length, 3)
+  }
+  // Four separate boards: four separate apples.
+  const apples = race.seated.map(lane => lane.game.food)
+  for (const apple of apples) assert.ok(apple.x >= 0)
+})
+
+test("the first of four to beat the boss takes the round, and the rest start the next set", () => {
+  const race = foursome()
+  race.players[2].game.defeatBoss()
+
+  assert.equal(race.roundWinner, 2)
+  assert.equal(race.players[2].wins, 1)
+  assert.deepEqual(race.players.map(lane => lane.wins), [0, 0, 1, 0])
+
+  pump(race, ROUND_OVER_MS)
+  assert.equal(race.round, 2)
+  for (const lane of race.seated) assert.equal(levelName(lane.game.displayedLevel), "2.1")
+})
+
+test("one lane crashing leaves the other three alone", () => {
+  const race = foursome()
+  race.players[1].game.finish()
+  race.step(20)
+
+  assert.ok(race.players[1].crashMs > 0)
+  const others = [0, 2, 3].map(seat => race.players[seat].game.snake[0].x)
+  pump(race, 400)
+  ;[0, 2, 3].forEach((seat, index) => {
+    assert.notEqual(race.players[seat].game.snake[0].x, others[index], `lane ${seat} should still be moving`)
+  })
+  assert.equal(race.phase, PHASE_PLAYING)
+})
+
+test("party mode stays one lane's business with four of them", () => {
+  const race = new Race({ present: [true, true, true, true] })
+  race.startMatch()
+  race.setParty(1, true)
+  race.setParty(3, true)
+  assert.deepEqual(race.players.map(lane => lane.game.partyMode), [false, true, false, true])
+})
+
+test("an absent seat cannot win a match", () => {
+  const race = foursome({ winsNeeded: 1 })
+  race.players[3].present = false
+  race.players[3].wins = 5
+  race.players[0].game.defeatBoss()
+  pump(race, ROUND_OVER_MS)
+  assert.equal(race.matchWinner, 0)
+})
+
+test("a snapshot carries who is playing", () => {
+  const race = foursome()
+  race.players[3].present = false
+  const watcher = new Race()
+  watcher.applySnapshot(JSON.parse(JSON.stringify(race.snapshot())))
+  assert.deepEqual(watcher.players.map(lane => lane.present), [true, true, true, false])
+  assert.deepEqual(watcher.snapshot(), race.snapshot())
+})
+
+test("the four default faces are four different faces", () => {
+  const race = foursome()
+  assert.equal(new Set(race.players.map(lane => lane.head)).size, 4)
 })

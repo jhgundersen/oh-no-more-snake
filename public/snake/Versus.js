@@ -20,6 +20,12 @@ export const VERSUS_ROWS = 22
 
 export const WINS_NEEDED = 3
 
+// Four is where the board runs out of corners to be fair with, and where the
+// four ways of drawing a snake — two shapes against two theme colours — run
+// out too. A duel of two is the same game with two of the four seats empty.
+export const MAX_SEATS = 4
+export const MIN_SEATS = 2
+
 export const PHASE_LOBBY = "lobby"
 export const PHASE_COUNTDOWN = "countdown"
 export const PHASE_PLAYING = "playing"
@@ -66,6 +72,9 @@ export const HEADS = [
   { id: "sleepy", name: "Sleepy" }
 ]
 
+// Wide, fierce, visor and sleepy: the four that look least like each other.
+export const DEFAULT_HEADS = [0, 3, 2, 5]
+
 // Anything that is not one of them is the first one. A head arrives from a
 // browser, so it is not to be trusted to be a number, let alone one in range.
 export function validHead(index) {
@@ -90,12 +99,28 @@ export const SPAWN_LENGTH = 3
 // How far ahead of each snake is kept clear, so nobody is born facing a wall.
 const SPAWN_RUNWAY = 6
 
+// A rectangle has four symmetries and no more: leaving it alone, turning it
+// through half a turn, and reflecting it in each axis. Four spawns placed on
+// one orbit of that group are equivalent to each other, which is the whole of
+// what "fair" means here — a quarter turn would be fairer still and does not
+// exist on a board that is wider than it is tall.
 export const mirrorCell = (cell, columns, rows) =>
   point(columns - 1 - cell.x, rows - 1 - cell.y)
+export const flipRow = (cell, columns, rows) => point(cell.x, rows - 1 - cell.y)
 
 export function spawnRow(rows) {
   return Math.floor(rows / 3)
 }
+
+// Where each seat is placed, as a transform of the first. Seats two and three
+// are the first pair reflected top to bottom, so a four-way duel is two facing
+// right on the left and two facing left on the right.
+const SEAT_PLACEMENT = [
+  cell => cell,
+  (cell, columns, rows) => mirrorCell(cell, columns, rows),
+  (cell, columns, rows) => flipRow(cell, columns, rows),
+  (cell, columns, rows) => flipRow(mirrorCell(cell, columns, rows), columns, rows)
+]
 
 // The first snake's body, head first, facing right.
 export function spawnCells(columns, rows) {
@@ -105,17 +130,28 @@ export function spawnCells(columns, rows) {
   return cells
 }
 
-// Every cell an obstacle may not use: both snakes, and the run each of them is
-// about to travel. It is symmetric under a half turn by construction, because
-// the second half of it is the first half turned — which is what lets the
-// obstacle filter drop a cell without having to remember to drop its twin.
-export function spawnZone(columns, rows) {
+// One seat's snake, head first, facing inwards.
+export function spawnFor(seat, columns, rows) {
+  const place = SEAT_PLACEMENT[seat] || SEAT_PLACEMENT[0]
+  return spawnCells(columns, rows).map(cell => place(cell, columns, rows))
+}
+
+// Which way a seat sets off: the left-hand pair inwards to the right, the
+// right-hand pair inwards to the left.
+export const spawnDirection = seat => point(seat === 0 || seat === 2 ? 1 : -1, 0)
+
+// Every cell an obstacle may not use: every snake that could be there, and the
+// run each is about to travel. It is closed under the board's symmetries by
+// construction, which is what lets the obstacle filter drop a cell without
+// having to remember to drop its mirrors.
+export function spawnZone(columns, rows, seats = MAX_SEATS) {
   const zone = []
   const y = spawnRow(rows)
   for (let i = 0; i < SPAWN_LENGTH + SPAWN_RUNWAY; ++i) {
     const cell = point(SPAWN_MARGIN + i, y)
-    zone.push(cell)
-    zone.push(mirrorCell(cell, columns, rows))
+    for (let seat = 0; seat < seats; ++seat) {
+      zone.push(SEAT_PLACEMENT[seat](cell, columns, rows))
+    }
   }
   return zone
 }
@@ -123,7 +159,7 @@ export function spawnZone(columns, rows) {
 // Four arrangements, each drawn in one half of the board and then turned
 // through half a turn onto the other. Round one is empty on purpose: the first
 // thing a new player should have to deal with is the other player.
-export function versusObstacles(round, columns = VERSUS_COLUMNS, rows = VERSUS_ROWS) {
+export function versusObstacles(round, columns = VERSUS_COLUMNS, rows = VERSUS_ROWS, seats = MAX_SEATS) {
   const shape = (Math.max(1, Math.floor(round)) - 1) % 4
   const half = []
   const put = (x, y) => half.push(point(Math.round(x), Math.round(y)))
@@ -153,17 +189,22 @@ export function versusObstacles(round, columns = VERSUS_COLUMNS, rows = VERSUS_R
     bar(columns * 0.62, rows * 0.36, 1, 0, Math.max(3, Math.round(long * 0.7)))
   }
 
-  const zone = spawnZone(columns, rows)
+  const zone = spawnZone(columns, rows, seats)
   const cells = []
   const keep = cell => {
     if (cell.x < 0 || cell.x >= columns || cell.y < 0 || cell.y >= rows) return false
     if (has(zone, cell)) return false
     return !has(cells, cell)
   }
+  // With two on the board a half turn is enough to make the two halves equal.
+  // With more than two the top and bottom have to match as well, or the seats
+  // on one row get a different board from the seats on the other.
+  const copies = seats > 2 ? SEAT_PLACEMENT : SEAT_PLACEMENT.slice(0, 2)
   for (const cell of half) {
-    const twin = mirrorCell(cell, columns, rows)
-    if (keep(cell)) cells.push(cell)
-    if (keep(twin)) cells.push(twin)
+    for (const place of copies) {
+      const copy = place(cell, columns, rows)
+      if (keep(copy)) cells.push(copy)
+    }
   }
   return cells
 }
@@ -173,12 +214,15 @@ export function versusObstacles(round, columns = VERSUS_COLUMNS, rows = VERSUS_R
 function makePlayer(seat) {
   return {
     seat,
+    // A seat nobody is sitting in is on the board's books and on nothing else:
+    // not drawn, not collided with, not counted when a round is decided.
+    present: seat < MIN_SEATS,
     snake: [],
-    direction: point(seat === 0 ? 1 : -1, 0),
+    direction: spawnDirection(seat),
     turnQueue: [],
-    // Two different faces to begin with, so a match nobody chose anything for
-    // still has two snakes that can be told apart.
-    head: seat === 0 ? 0 : 3,
+    // Four faces as far apart as the roster allows, so a match nobody chose
+    // anything for still has snakes that can be told apart.
+    head: DEFAULT_HEADS[seat % DEFAULT_HEADS.length],
     // Apples this round, which is also how a round both players lost is
     // decided; apples all match, which is only ever flavour.
     score: 0,
@@ -199,7 +243,8 @@ export class Versus {
     columns = VERSUS_COLUMNS,
     rows = VERSUS_ROWS,
     wrap = true,
-    winsNeeded = WINS_NEEDED
+    winsNeeded = WINS_NEEDED,
+    present = null
   } = {}) {
     this.random = random
     this.columns = columns
@@ -208,7 +253,8 @@ export class Versus {
     this.winsNeeded = winsNeeded
     this.listeners = new Map()
 
-    this.players = [makePlayer(0), makePlayer(1)]
+    this.players = [makePlayer(0), makePlayer(1), makePlayer(2), makePlayer(3)]
+    if (present) this.setPresent(present)
     this.obstacles = []
     this.food = { ...NOWHERE }
     this.phase = PHASE_LOBBY
@@ -236,6 +282,21 @@ export class Versus {
     if (handlers) for (const handler of handlers) handler(...args)
   }
 
+  // Who is actually playing. Seats are 0 to 3 and stay where they are; this is
+  // what says which of them are occupied, so a seat number means the same
+  // thing to the room, the board and the person sitting in it.
+  setPresent(present) {
+    this.players.forEach((player, seat) => { player.present = !!present[seat] })
+  }
+
+  get seated() {
+    return this.players.filter(player => player.present)
+  }
+
+  get alive() {
+    return this.players.filter(player => player.present && player.alive)
+  }
+
   // --- derived state ---
 
   get running() {
@@ -259,7 +320,7 @@ export class Versus {
 
   // Apples eaten this round, by either of them.
   get appleCount() {
-    return this.players[0].score + this.players[1].score
+    return this.seated.reduce((total, player) => total + player.score, 0)
   }
 
   isObstacle(p) {
@@ -268,7 +329,7 @@ export class Versus {
 
   occupied(p) {
     if (this.isObstacle(p)) return true
-    return this.players.some(player => has(player.snake, p))
+    return this.players.some(player => player.present && has(player.snake, p))
   }
 
   freeCells() {
@@ -301,17 +362,14 @@ export class Versus {
     ++this.round
     this.tickNumber = 0
     this.roundWinner = null
-    this.obstacles = versusObstacles(this.round, this.columns, this.rows)
+    this.obstacles = versusObstacles(this.round, this.columns, this.rows, this.seated.length)
 
-    const cells = spawnCells(this.columns, this.rows)
     this.players.forEach((player, seat) => {
-      player.snake = seat === 0
-        ? cells.map(cell => ({ ...cell }))
-        : cells.map(cell => mirrorCell(cell, this.columns, this.rows))
-      player.direction = point(seat === 0 ? 1 : -1, 0)
+      player.snake = player.present ? spawnFor(seat, this.columns, this.rows) : []
+      player.direction = spawnDirection(seat)
       player.turnQueue = []
       player.score = 0
-      player.alive = true
+      player.alive = player.present
       player.reason = null
       player.crashAt = null
     })
@@ -352,7 +410,7 @@ export class Versus {
   // more here, because online the tick boundary is somebody else's.
   turn(seat, dx, dy) {
     const player = this.players[seat]
-    if (!player || !player.alive) return false
+    if (!player || !player.present || !player.alive) return false
     if (Math.abs(dx) + Math.abs(dy) !== 1) return false
     if (this.phase !== PHASE_PLAYING && this.phase !== PHASE_COUNTDOWN) return false
     if (player.turnQueue.length >= 2) return false
@@ -421,15 +479,29 @@ export class Versus {
   tick() {
     if (this.phase !== PHASE_PLAYING) return
     if (++this.tickNumber > STALEMATE_TICKS) {
-      this.endRound(["stalemate", "stalemate"])
+      for (const player of this.alive) {
+        player.alive = false
+        player.reason = "stalemate"
+      }
+      this.roundWinner = DRAW
+      this.settleRound()
       return
     }
 
-    const heads = []
-    const offBoard = []
-    const eats = []
+    // A snake that died last tick is off the board. It is left where it fell
+    // for the frame that killed it — the round has to show whose fault it was
+    // — and then it goes, because a body nobody can crash into but everybody
+    // can see is worse than no body at all.
+    for (const player of this.players) {
+      if (player.present && !player.alive && player.snake.length) player.snake = []
+    }
 
-    this.players.forEach(player => {
+    const running = this.players.filter(player => player.present && player.alive)
+    const heads = new Map()
+    const offBoard = new Map()
+    const eats = new Map()
+
+    for (const player of running) {
       if (player.turnQueue.length) player.direction = player.turnQueue.shift()
       const head = point(player.snake[0].x + player.direction.x, player.snake[0].y + player.direction.y)
       let off = false
@@ -439,73 +511,85 @@ export class Versus {
           head.y = (head.y + this.rows) % this.rows
         } else off = true
       }
-      heads.push(head)
-      offBoard.push(off)
-      eats.push(!off && same(head, this.food))
-    })
+      heads.set(player, head)
+      offBoard.set(player, off)
+      eats.set(player, !off && same(head, this.food))
+    }
 
     // What each body will still be covering once it has moved. Dropping the
     // tail of a snake that is not growing is what makes following your own
     // tail — or somebody else's — legal, exactly as it is in single player.
-    const bodies = this.players.map((player, seat) =>
-      player.snake.slice(0, player.snake.length - (eats[seat] ? 0 : 1)))
+    const bodies = new Map()
+    for (const player of running) {
+      bodies.set(player, player.snake.slice(0, player.snake.length - (eats.get(player) ? 0 : 1)))
+    }
 
-    const deaths = [null, null]
-    this.players.forEach((player, seat) => {
-      const other = 1 - seat
-      const head = heads[seat]
-      if (offBoard[seat]) deaths[seat] = "wall"
-      else if (this.isObstacle(head)) deaths[seat] = "wall"
-      else if (has(bodies[seat], head)) deaths[seat] = "self"
-      // Two heads into the same cell is nobody's fault and nobody's win. It is
-      // also the only way both of them can reach the apple on the same tick,
-      // which is why the apple never has to be argued over.
-      else if (same(head, heads[other])) deaths[seat] = "head-on"
-      else if (has(bodies[other], head)) deaths[seat] = "rival"
-    })
+    const deaths = new Map()
+    for (const player of running) {
+      const head = heads.get(player)
+      if (offBoard.get(player)) deaths.set(player, "wall")
+      else if (this.isObstacle(head)) deaths.set(player, "wall")
+      else if (has(bodies.get(player), head)) deaths.set(player, "self")
+      // Two or more heads into the same cell is nobody's fault and nobody's
+      // win. It is also the only way two of them can reach the apple on the
+      // same tick, which is why the apple never has to be argued over.
+      else if (running.some(other => other !== player && same(head, heads.get(other)))) {
+        deaths.set(player, "head-on")
+      } else if (running.some(other => other !== player && has(bodies.get(other), head))) {
+        deaths.set(player, "rival")
+      }
+    }
 
     let eaten = false
-    this.players.forEach((player, seat) => {
-      if (deaths[seat]) {
-        // Left where it crashed rather than moved into the wall: the last
-        // frame of a round should show whose fault it was.
-        player.crashAt = heads[seat]
-        this.emit("crashed", seat, heads[seat].x, heads[seat].y, deaths[seat])
-        return
+    for (const player of running) {
+      const head = heads.get(player)
+      if (deaths.has(player)) {
+        // Left where it crashed rather than moved into the wall: the frame
+        // that ends a snake should show what ended it.
+        player.alive = false
+        player.reason = deaths.get(player)
+        player.crashAt = head
+        this.emit("crashed", player.seat, head.x, head.y, player.reason)
+        continue
       }
-      player.snake.unshift(heads[seat])
-      if (eats[seat]) {
+      player.snake.unshift(head)
+      if (eats.get(player)) {
         ++player.score
         ++player.total
         ++this.apples
         eaten = true
-        this.emit("apple", seat, heads[seat].x, heads[seat].y)
+        this.emit("apple", player.seat, head.x, head.y)
       } else player.snake.pop()
-    })
+    }
 
-    if (deaths[0] || deaths[1]) {
-      this.endRound(deaths)
+    // A round runs until one of them is left. With two on the board that is
+    // the first death; with four it is the third.
+    if (this.alive.length <= 1) {
+      this.settleRound()
       return
     }
     if (eaten) this.spawnFood()
     this.emit("boardChanged")
   }
 
-  endRound(deaths) {
-    this.players.forEach((player, seat) => {
-      if (!deaths[seat]) return
-      player.alive = false
-      player.reason = deaths[seat]
-    })
+  // Who took the round. The last one standing, or — when the last of them went
+  // together — whoever had eaten the most, which is the one place racing for
+  // the apple pays off directly.
+  settleRound() {
+    const standing = this.alive
+    if (standing.length === 1) this.roundWinner = standing[0].seat
+    else if (this.roundWinner !== DRAW) {
+      const best = Math.max(...this.seated.map(player => player.score))
+      const leaders = this.seated.filter(player => player.score === best)
+      this.roundWinner = leaders.length === 1 ? leaders[0].seat : DRAW
+    }
+    this.endRound()
+  }
 
-    if (deaths[0] && deaths[1]) {
-      // Both gone on the same tick. Whoever ate more takes it, which is the
-      // one place where racing for the apple pays off directly.
-      const [first, second] = this.players
-      this.roundWinner = first.score === second.score ? DRAW : first.score > second.score ? 0 : 1
-    } else this.roundWinner = deaths[0] ? 1 : 0
-
-    if (this.roundWinner !== DRAW) ++this.players[this.roundWinner].wins
+  endRound() {
+    if (this.roundWinner !== DRAW && this.roundWinner !== null) {
+      ++this.players[this.roundWinner].wins
+    }
     this.phase = PHASE_ROUND_OVER
     this.phaseMs = ROUND_OVER_MS
     this.emit("roundOver", this.roundWinner)
@@ -517,9 +601,12 @@ export class Versus {
   // match away rather than freezing it, and this is what the browser watching
   // that room pours in when the room says there is nothing to show.
   toLobby() {
-    const heads = this.players.map(player => player.head)
-    this.players = [makePlayer(0), makePlayer(1)]
-    this.players.forEach((player, seat) => { player.head = heads[seat] })
+    const kept = this.players.map(player => ({ head: player.head, present: player.present }))
+    this.players = [makePlayer(0), makePlayer(1), makePlayer(2), makePlayer(3)]
+    this.players.forEach((player, seat) => {
+      player.head = kept[seat].head
+      player.present = kept[seat].present
+    })
     this.obstacles = []
     this.food = { ...NOWHERE }
     this.phase = PHASE_LOBBY
@@ -565,7 +652,9 @@ export class Versus {
       food: this.indexOf(this.food),
       roundWinner: this.roundWinner,
       matchWinner: this.matchWinner,
+      seats: this.seated.length,
       players: this.players.map(player => ({
+        present: player.present,
         snake: player.snake.map(cell => this.indexOf(cell)),
         direction: [player.direction.x, player.direction.y],
         score: player.score,
@@ -600,6 +689,7 @@ export class Versus {
     this.matchWinner = state.matchWinner
     state.players.forEach((incoming, seat) => {
       const player = this.players[seat]
+      player.present = incoming.present
       player.snake = incoming.snake.map(index => this.cellAt(index))
       player.direction = point(incoming.direction[0], incoming.direction[1])
       player.score = incoming.score

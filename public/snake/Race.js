@@ -22,11 +22,13 @@
 // the same shape to whatever is driving it.
 
 import { COLUMNS, LEVELS_PER_SET, ROWS, Game, isBossLevel } from "./Game.js"
-import { validHead } from "./Versus.js"
+import { DEFAULT_HEADS, MAX_SEATS, MIN_SEATS, validHead } from "./Versus.js"
 
 export const RACE_COLUMNS = COLUMNS
 export const RACE_ROWS = ROWS
 export const WINS_NEEDED = 3
+
+export { MAX_SEATS, MIN_SEATS }
 
 export const COUNTDOWN_MS = 2000
 export const ROUND_OVER_MS = 3000
@@ -69,10 +71,14 @@ function memoryStore() {
 function makeLane(seat, wrap) {
   return {
     seat,
+    // A seat nobody is sitting in gets no board and no clock. Seats stay where
+    // they are so a seat number means the same thing to the room, the boards
+    // and the person sitting in it.
+    present: seat < MIN_SEATS,
     game: new Game({ store: memoryStore() }),
-    // Two different faces to begin with, so a race nobody chose anything for
-    // still has two snakes that can be told apart.
-    head: seat === 0 ? 0 : 3,
+    // Four faces as far apart as the roster allows, so a race nobody chose
+    // anything for still has snakes that can be told apart.
+    head: DEFAULT_HEADS[seat % DEFAULT_HEADS.length],
     party: false,
     wins: 0,
     crashMs: 0,
@@ -87,15 +93,16 @@ function makeLane(seat, wrap) {
 }
 
 export class Race {
-  constructor({ wrap = true, winsNeeded = WINS_NEEDED } = {}) {
+  constructor({ wrap = true, winsNeeded = WINS_NEEDED, present = null } = {}) {
     this.columns = RACE_COLUMNS
     this.rows = RACE_ROWS
     this.wrap = wrap
     this.winsNeeded = winsNeeded
     this.listeners = new Map()
 
-    this.players = [makeLane(0, wrap), makeLane(1, wrap)]
+    this.players = [0, 1, 2, 3].map(seat => makeLane(seat, wrap))
     this.players.forEach((lane, seat) => this.watch(lane, seat))
+    if (present) this.setPresent(present)
 
     this.phase = PHASE_LOBBY
     this.phaseMs = 0
@@ -145,6 +152,14 @@ export class Race {
     lane.game.on("foodEaten", (x, y, points) => this.emit("apple", seat, x, y, points))
   }
 
+  setPresent(present) {
+    this.players.forEach((lane, seat) => { lane.present = !!present[seat] })
+  }
+
+  get seated() {
+    return this.players.filter(lane => lane.present)
+  }
+
   // --- derived state ---
 
   get running() {
@@ -165,7 +180,7 @@ export class Race {
   get pace() {
     if (this.phase !== PHASE_PLAYING) return 100
     let soonest = 100
-    for (const lane of this.players) {
+    for (const lane of this.seated) {
       if (lane.finished || lane.crashMs > 0 || lane.transitionMs > 0) continue
       soonest = Math.min(soonest, Math.max(10, lane.game.tickInterval - lane.accumulator))
     }
@@ -204,7 +219,8 @@ export class Race {
       lane.finished = false
       lane.crashes = 0
       lane.reason = null
-      this.placeLane(seat, setStartLevel(this.round))
+      if (lane.present) this.placeLane(seat, setStartLevel(this.round))
+      else lane.game.snake = []
     })
     this.phase = PHASE_COUNTDOWN
     this.phaseMs = COUNTDOWN_MS
@@ -234,7 +250,7 @@ export class Race {
   // boss is down, and a race needs no idea that it does.
   turn(seat, dx, dy) {
     const lane = this.players[seat]
-    if (!lane || lane.finished || lane.crashMs > 0) return false
+    if (!lane || !lane.present || lane.finished || lane.crashMs > 0) return false
     if (this.phase !== PHASE_PLAYING && this.phase !== PHASE_COUNTDOWN) return false
     lane.game.turn(dx, dy)
     return true
@@ -263,7 +279,7 @@ export class Race {
   // reported rather than measured here. It opens a window on that lane alone.
   registerBeat(seat, strength) {
     const lane = this.players[seat]
-    if (!lane || !lane.party) return false
+    if (!lane || !lane.present || !lane.party) return false
     lane.game.registerStrongBeat(strength)
     return true
   }
@@ -282,7 +298,7 @@ export class Race {
         this.emit("phaseChanged")
         return
       }
-      const champion = this.players.findIndex(lane => lane.wins >= this.winsNeeded)
+      const champion = this.players.findIndex(lane => lane.present && lane.wins >= this.winsNeeded)
       if (champion >= 0) {
         this.matchWinner = champion
         this.phase = PHASE_MATCH_OVER
@@ -303,7 +319,7 @@ export class Race {
       return
     }
 
-    this.players.forEach((lane, seat) => this.stepLane(lane, seat, ms))
+    this.players.forEach((lane, seat) => { if (lane.present) this.stepLane(lane, seat, ms) })
     this.emit("boardChanged")
   }
 
@@ -382,11 +398,12 @@ export class Race {
   }
 
   toLobby() {
-    const kept = this.players.map(lane => ({ head: lane.head, party: lane.party }))
-    this.players = [makeLane(0, this.wrap), makeLane(1, this.wrap)]
+    const kept = this.players.map(lane => ({ head: lane.head, party: lane.party, present: lane.present }))
+    this.players = [0, 1, 2, 3].map(seat => makeLane(seat, this.wrap))
     this.players.forEach((lane, seat) => {
       lane.head = kept[seat].head
       lane.party = kept[seat].party
+      lane.present = kept[seat].present
       this.watch(lane, seat)
     })
     this.phase = PHASE_LOBBY
@@ -412,7 +429,9 @@ export class Race {
       round: this.round,
       roundWinner: this.roundWinner,
       matchWinner: this.matchWinner,
+      seats: this.seated.length,
       players: this.players.map(lane => ({
+        present: lane.present,
         head: lane.head,
         party: lane.party,
         wins: lane.wins,
@@ -441,6 +460,7 @@ export class Race {
     this.matchWinner = state.matchWinner
     state.players.forEach((incoming, seat) => {
       const lane = this.players[seat]
+      lane.present = incoming.present
       lane.head = validHead(incoming.head)
       lane.party = incoming.party
       lane.wins = incoming.wins
