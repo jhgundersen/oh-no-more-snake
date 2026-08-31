@@ -229,6 +229,12 @@ third mode should mean adding a model, not editing those two.
   long enough to be looked at, then goes back to 1.1 while the other one keeps
   going. A lane that crashed on the round's last step stays crashed, because
   that is the frame the round ended on.
+- **The lobby is built once and updated in place.** Nothing in `renderLobby`
+  may replace, hide or disable a node somebody might be typing into. Rebuilding
+  it per message is what it did first, and since every keystroke in a name
+  field sends a message that comes back as a lobby, the field being typed in
+  was replaced after every letter and the caret thrown out with it. The name is
+  also kept locally at once and told to the room only once the typing stops.
 - **A lobby is not a doorway.** A match starts when both seats are filled *and*
   both players have said they are ready. Changing the mode clears readiness,
   because changing the game is a reason to look again before starting it.

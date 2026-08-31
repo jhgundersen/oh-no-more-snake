@@ -1066,40 +1066,85 @@ function createRoom() {
 
 // --- the lobby, drawn ---
 
-// The head pickers are rebuilt with the rest of the seat, because which seat a
-// row belongs to decides both its colour and which way its faces look.
-function buildHeadOptions(seat, editable) {
-  const options = document.createElement("div")
-  options.className = "heads-options"
-  const ratio = Math.min(3, devicePixelRatio || 1)
+// The lobby is built once and updated in place from then on. Rebuilding it per
+// message is what it used to do, and every keystroke in a name field sent a
+// message, which came back as a lobby, which replaced the field being typed
+// in — so the caret was thrown out after every letter. Nothing here may
+// replace a node that somebody might be typing into.
+const HEAD_PREVIEW = 30
+const seatNodes = []
 
-  HEADS.forEach((style, index) => {
-    const button = document.createElement("button")
-    button.type = "button"
-    button.className = "head"
-    // A canvas has nothing for a screen reader to read, so the name the roster
-    // carries is what the button is called.
-    button.setAttribute("aria-label", style.name)
-    button.setAttribute("aria-pressed", String(versusHeads[seat] === index))
-    button.disabled = !editable
+function buildLobby() {
+  lobbySeats.replaceChildren()
+  seatNodes.length = 0
 
-    const canvas = document.createElement("canvas")
-    canvas.width = Math.round(HEAD_PREVIEW * ratio)
-    canvas.height = Math.round(HEAD_PREVIEW * ratio)
-    canvas.style.width = `${HEAD_PREVIEW}px`
-    canvas.style.height = `${HEAD_PREVIEW}px`
-    const context = canvas.getContext("2d")
-    context.setTransform(ratio, 0, 0, ratio, 0, 0)
-    drawHeadPreview(context, { theme, seat, head: index, size: HEAD_PREVIEW })
+  for (const seat of [0, 1]) {
+    const card = document.createElement("div")
+    card.className = `seat seat-${seat}`
 
-    button.append(canvas)
-    if (editable) button.addEventListener("click", () => chooseHead(seat, index))
-    options.append(button)
-  })
-  return options
+    const top = document.createElement("div")
+    top.className = "seat-top"
+    const who = document.createElement("span")
+    who.className = "seat-who"
+    const state = document.createElement("span")
+    state.className = "seat-state"
+    top.append(who, state)
+
+    // Both the field and the label exist from the start, and which of them is
+    // shown depends on whose seat it is. Swapping one for the other would mean
+    // creating a node, which is the thing that must not happen here.
+    const input = document.createElement("input")
+    input.type = "text"
+    input.maxLength = 16
+    input.autocomplete = "off"
+    input.placeholder = `Player ${seat + 1}`
+    input.value = versusNicks[seat]
+    input.setAttribute("aria-label", `Name for player ${seat + 1}`)
+    input.addEventListener("input", () => chooseNick(seat, input.value))
+
+    const name = document.createElement("div")
+    name.className = "seat-name"
+
+    const options = document.createElement("div")
+    options.className = "heads-options"
+    const heads = HEADS.map((style, index) => {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.className = "head"
+      // A canvas has nothing for a screen reader to read, so the name the
+      // roster carries is what the button is called.
+      button.setAttribute("aria-label", style.name)
+      const canvas = document.createElement("canvas")
+      button.append(canvas)
+      button.addEventListener("click", () => chooseHead(seat, index))
+      options.append(button)
+      return { button, canvas }
+    })
+
+    card.append(top, input, name, options)
+    lobbySeats.append(card)
+    seatNodes.push({ card, who, state, input, name, heads })
+  }
+  paintHeads()
 }
 
-const HEAD_PREVIEW = 30
+// The faces are drawn rather than styled, so they are repainted when the
+// palette changes and at no other time — twelve canvases per lobby message
+// would be a great deal of painting for a board that has not changed.
+function paintHeads() {
+  const ratio = Math.min(3, devicePixelRatio || 1)
+  seatNodes.forEach((nodes, seat) => {
+    nodes.heads.forEach(({ canvas }, index) => {
+      canvas.width = Math.round(HEAD_PREVIEW * ratio)
+      canvas.height = Math.round(HEAD_PREVIEW * ratio)
+      canvas.style.width = `${HEAD_PREVIEW}px`
+      canvas.style.height = `${HEAD_PREVIEW}px`
+      const context = canvas.getContext("2d")
+      context.setTransform(ratio, 0, 0, ratio, 0, 0)
+      drawHeadPreview(context, { theme, seat, head: index, size: HEAD_PREVIEW })
+    })
+  })
+}
 
 function chooseHead(seat, index) {
   versusHeads[seat] = validHead(index)
@@ -1109,11 +1154,17 @@ function chooseHead(seat, index) {
   renderLobby()
 }
 
+// One message per keystroke would be within the room's budget and still be a
+// message per keystroke. The name is kept here at once and told to the room
+// once the typing stops.
+let nickTimer = 0
 function chooseNick(seat, value) {
   versusNicks[seat] = value.slice(0, 16)
   remember(nickKey(seat), versusNicks[seat])
-  if (online()) net?.setNick(versusNicks[seat])
-  else if (lobbyState) lobbyState.players[seat].nick = versusNicks[seat]
+  if (lobbyState?.players?.[seat]) lobbyState.players[seat].nick = versusNicks[seat]
+  if (!online()) return
+  clearTimeout(nickTimer)
+  nickTimer = setTimeout(() => net?.setNick(versusNicks[seat]), 300)
 }
 
 function renderLobby() {
@@ -1136,46 +1187,32 @@ function renderLobby() {
     seat, here: !isOnline, nick: versusNicks[seat], head: versusHeads[seat], ready: false
   }))
 
-  lobbySeats.replaceChildren()
-  players.forEach((player, seat) => {
+  seatNodes.forEach((nodes, seat) => {
+    const player = players[seat]
     const mine = !isOnline || seat === versusSeat
-    const card = document.createElement("div")
-    card.className = `seat seat-${seat}${player.ready ? " ready" : ""}`
 
-    const top = document.createElement("div")
-    top.className = "seat-top"
-    const who = document.createElement("span")
-    who.className = "seat-who"
-    who.textContent = isOnline
+    nodes.card.className = `seat seat-${seat}${player.ready ? " ready" : ""}`
+    nodes.who.textContent = isOnline
       ? (seat === versusSeat ? `P${seat + 1} — YOU` : `P${seat + 1}`)
       : `PLAYER ${seat + 1}`
-    const state = document.createElement("span")
-    state.className = "seat-state"
-    state.textContent = !player.here ? "empty" : player.ready ? "ready" : isOnline ? "not ready" : ""
-    top.append(who, state)
+    nodes.state.textContent = !player.here
+      ? "empty"
+      : player.ready ? "ready" : isOnline ? "not ready" : ""
 
-    card.append(top)
-
-    if (mine) {
-      const input = document.createElement("input")
-      input.type = "text"
-      input.maxLength = 16
-      input.autocomplete = "off"
-      input.placeholder = `Player ${seat + 1}`
-      input.value = versusNicks[seat]
-      input.setAttribute("aria-label", `Name for player ${seat + 1}`)
-      input.addEventListener("input", () => chooseNick(seat, input.value))
-      card.append(input)
-    } else {
-      const name = document.createElement("div")
-      name.className = "seat-name"
-      // textContent, never innerHTML: this is a name somebody else typed.
-      name.textContent = player.nick || (player.here ? `Player ${seat + 1}` : "waiting…")
-      card.append(name)
+    nodes.input.hidden = !mine
+    nodes.name.hidden = mine
+    // Never while it is being typed into, and never when it already says this.
+    if (mine && document.activeElement !== nodes.input && nodes.input.value !== versusNicks[seat]) {
+      nodes.input.value = versusNicks[seat]
     }
+    // textContent, never innerHTML: this is a name somebody else typed.
+    if (!mine) nodes.name.textContent = player.nick || (player.here ? `Player ${seat + 1}` : "waiting…")
 
-    card.append(buildHeadOptions(seat, mine))
-    lobbySeats.append(card)
+    const chosen = mine ? versusHeads[seat] : player.head
+    nodes.heads.forEach(({ button }, index) => {
+      button.setAttribute("aria-pressed", String(chosen === index))
+      button.disabled = !mine
+    })
   })
 
   const ready = el("lobby-ready")
@@ -1188,6 +1225,8 @@ function renderLobby() {
     ready.textContent = "Start"
   }
 }
+
+buildLobby()
 
 // --- chat ---
 
@@ -1478,7 +1517,8 @@ function applyTheme() {
   root.style.setProperty("--button-border", rgba(mixColors(theme.colors.accent, theme.colors.foreground, 0.32)))
   root.style.colorScheme = theme.dark ? "dark" : "light"
   // The face previews are drawn, not styled, so a new palette has to redraw
-  // them — and they only exist while the lobby does.
+  // them. Nothing else does.
+  paintHeads()
   renderLobby()
   updateHud()
 }
