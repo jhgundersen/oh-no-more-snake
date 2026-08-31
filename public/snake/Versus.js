@@ -51,6 +51,10 @@ const FASTEST_INTERVAL = 70
 // minutes of mutual politeness is a draw.
 const STALEMATE_TICKS = 1800
 
+// Bitten below this there is nothing left to be: a snake that is only a head
+// has been eaten. It is what finishes a boss, and it finishes a duel the same.
+const MINIMUM_LENGTH = 2
+
 // Neither of them. Used for a round where both crashed on the same tick with
 // the same number of apples, and for the match if that somehow decides it.
 export const DRAW = -1
@@ -255,7 +259,12 @@ export class Versus {
 
     this.players = [makePlayer(0), makePlayer(1), makePlayer(2), makePlayer(3)]
     if (present) this.setPresent(present)
+    // What has been bitten off somebody. It lies where it fell and anybody can
+    // eat it, which is what makes taking a chunk out of a rival worth doing
+    // rather than merely rude.
+    this.scraps = []
     this.obstacles = []
+    this.scraps = []
     this.food = { ...NOWHERE }
     this.phase = PHASE_LOBBY
     this.phaseMs = 0
@@ -329,6 +338,7 @@ export class Versus {
 
   occupied(p) {
     if (this.isObstacle(p)) return true
+    if (has(this.scraps, p)) return true
     return this.players.some(player => player.present && has(player.snake, p))
   }
 
@@ -363,6 +373,7 @@ export class Versus {
     this.tickNumber = 0
     this.roundWinner = null
     this.obstacles = versusObstacles(this.round, this.columns, this.rows, this.seated.length)
+    this.scraps = []
 
     this.players.forEach((player, seat) => {
       player.snake = player.present ? spawnFor(seat, this.columns, this.rows) : []
@@ -513,7 +524,8 @@ export class Versus {
       }
       heads.set(player, head)
       offBoard.set(player, off)
-      eats.set(player, !off && same(head, this.food))
+      // An apple, or a piece somebody bit off somebody else. Both grow you.
+      eats.set(player, !off && (same(head, this.food) || has(this.scraps, head)))
     }
 
     // What each body will still be covering once it has moved. Dropping the
@@ -535,9 +547,9 @@ export class Versus {
       // same tick, which is why the apple never has to be argued over.
       else if (running.some(other => other !== player && same(head, heads.get(other)))) {
         deaths.set(player, "head-on")
-      } else if (running.some(other => other !== player && has(bodies.get(other), head))) {
-        deaths.set(player, "rival")
       }
+      // Running into a rival is not fatal any more. It is a bite, and it is
+      // resolved below, once everybody has moved.
     }
 
     let eaten = false
@@ -554,13 +566,17 @@ export class Versus {
       }
       player.snake.unshift(head)
       if (eats.get(player)) {
+        const scrap = this.scraps.findIndex(cell => same(cell, head))
+        if (scrap >= 0) this.scraps.splice(scrap, 1)
+        else eaten = true
         ++player.score
         ++player.total
         ++this.apples
-        eaten = true
         this.emit("apple", player.seat, head.x, head.y)
       } else player.snake.pop()
     }
+
+    this.resolveBites(running, deaths)
 
     // A round runs until one of them is left. With two on the board that is
     // the first death; with four it is the third.
@@ -570,6 +586,50 @@ export class Versus {
     }
     if (eaten) this.spawnFood()
     this.emit("boardChanged")
+  }
+
+  // A snake whose head has landed in somebody else's body has bitten it, the
+  // way a snake bites a boss: everything behind the bite comes off and lies
+  // there to be eaten. Reaching far enough forward to leave a rival with
+  // nothing but a head eats it outright — the same rule that finishes a boss,
+  // and the only reason chasing anybody is worth the risk.
+  //
+  // Resolved after everybody has moved, so a bite is decided against where the
+  // bodies ended up rather than where they set off from.
+  resolveBites(running, deaths) {
+    const bites = new Map()
+    for (const biter of running) {
+      if (deaths.has(biter)) continue
+      const head = biter.snake[0]
+      for (const victim of running) {
+        if (victim === biter || deaths.has(victim)) continue
+        const index = victim.snake.findIndex((cell, at) => at > 0 && same(cell, head))
+        if (index <= 0) continue
+        // Two mouthfuls out of one snake on one tick: the nearer the head, the
+        // worse it is, and the worse one is what happens.
+        const worst = bites.get(victim)
+        if (!worst || index < worst.index) bites.set(victim, { index, biter })
+      }
+    }
+
+    for (const [victim, { index, biter }] of bites) {
+      // The cell the biter's head is on belongs to the biter now, so what
+      // comes off is everything behind it.
+      const cut = victim.snake.slice(index + 1)
+      victim.snake = victim.snake.slice(0, index)
+      for (const cell of cut) this.scraps.push({ ...cell })
+
+      ++biter.score
+      ++biter.total
+      this.emit("bitten", biter.seat, victim.seat, cut.length)
+
+      if (victim.snake.length < MINIMUM_LENGTH) {
+        victim.alive = false
+        victim.reason = "eaten"
+        victim.crashAt = victim.snake[0] ? { ...victim.snake[0] } : null
+        this.emit("eaten", victim.seat, biter.seat)
+      }
+    }
   }
 
   // Who took the round. The last one standing, or — when the last of them went
@@ -649,6 +709,7 @@ export class Versus {
       round: this.round,
       tickNumber: this.tickNumber,
       obstacles: this.obstacles.map(cell => this.indexOf(cell)),
+      scraps: this.scraps.map(cell => this.indexOf(cell)),
       food: this.indexOf(this.food),
       roundWinner: this.roundWinner,
       matchWinner: this.matchWinner,
@@ -684,6 +745,7 @@ export class Versus {
     this.round = state.round
     this.tickNumber = state.tickNumber
     this.obstacles = state.obstacles.map(index => this.cellAt(index))
+    this.scraps = (state.scraps || []).map(index => this.cellAt(index))
     this.food = this.cellAt(state.food)
     this.roundWinner = state.roundWinner
     this.matchWinner = state.matchWinner

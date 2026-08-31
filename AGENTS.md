@@ -290,6 +290,14 @@ third mode should mean adding a model, not editing those two.
   field sends a message that comes back as a lobby, the field being typed in
   was replaced after every letter and the caret thrown out with it. The name is
   also kept locally at once and told to the room only once the typing stops.
+- **A duel is a boss fight between players.** Running into a rival bites it
+  rather than killing you: what is behind the bite comes off as scraps anybody
+  can eat, and a snake left with nothing but a head has been eaten — the same
+  rule that finishes a boss. Bites are resolved after everybody has moved, so
+  one is decided against where the bodies ended up rather than where they set
+  off from, and two mouthfuls out of one snake on one tick take the worse of
+  them. Walls, your own body and a nose-to-nose meeting stay fatal: without
+  something that still kills you outright there is no reason to steer.
 - **A lobby is not a doorway.** A match starts when both seats are filled *and*
   both players have said they are ready. Changing the mode clears readiness,
   because changing the game is a reason to look again before starting it.

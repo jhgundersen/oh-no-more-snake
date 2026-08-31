@@ -1197,7 +1197,7 @@ export function drawSplash(ctx, view) {
 const CRASH_REASONS = {
   wall: "into the wall",
   self: "into itself",
-  rival: "into the other snake",
+  eaten: "eaten alive",
   "head-on": "nose to nose",
   stalemate: "neither of them blinked"
 }
@@ -1319,6 +1319,21 @@ export function drawVersus(ctx, view) {
       ctx.fillRect(0, 0, width, height)
       ctx.globalAlpha = 1
     }
+  }
+
+  // What has been bitten off somebody, lying where it fell. Drawn smaller and
+  // rounder than a snake so it reads as a piece of one rather than a snake.
+  for (const scrap of versus.scraps) {
+    const size = cell * 0.5
+    const x = (scrap.x + 0.5) * cell
+    const y = (scrap.y + 0.5) * cell
+    ctx.beginPath()
+    ctx.arc(x, y, size / 2, 0, Math.PI * 2)
+    ctx.fillStyle = party ? frequencyColor(0.5) : rgba(colors.foreground, 0.55)
+    ctx.fill()
+    ctx.lineWidth = 1
+    ctx.strokeStyle = rgba(colors.accent, 0.6)
+    ctx.stroke()
   }
 
   versus.obstacles.forEach((wall, index) => {

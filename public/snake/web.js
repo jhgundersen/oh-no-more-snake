@@ -712,8 +712,8 @@ const buttons = [
     name: () => "Charts, the highest scores", act: () => openCharts() },
   // The way in and, while a duel is up, the way out. One button, because the
   // controls row decides how much height is left for the board.
-  { id: "versus", letter: "2", rest: () => (twoPlayer() ? " Players: Leave" : " Players"),
-    name: () => (twoPlayer() ? "Leave two players" : "Two players, here or online"),
+  { id: "versus", letter: "2", rest: () => (twoPlayer() ? " Multiplayer: Leave" : " Multiplayer"),
+    name: () => (twoPlayer() ? "Leave multiplayer" : "Multiplayer, here or online"),
     act: () => openVersus() }
 ]
 

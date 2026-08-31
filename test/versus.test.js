@@ -175,16 +175,57 @@ test("running into your own body loses the round", () => {
   assert.equal(versus.roundWinner, 1)
 })
 
-test("running into the other snake loses the round to it", () => {
+test("running into the other snake bites it rather than ending you", () => {
   const versus = arena()
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
-  place(versus, 1, [[6, 4], [6, 5], [6, 6]], [0, -1])
+  // Long enough that a bite through the middle leaves something behind.
+  place(versus, 1, [[6, 3], [6, 4], [6, 5], [6, 6], [6, 7]], [0, -1])
   versus.tick()
 
-  assert.equal(versus.players[0].reason, "rival")
+  // Both are still going, and the round with them.
+  assert.equal(versus.phase, PHASE_PLAYING)
+  assert.equal(versus.players[0].alive, true)
   assert.equal(versus.players[1].alive, true)
-  assert.equal(versus.roundWinner, 1)
-  assert.equal(versus.players[1].wins, 1)
+
+  // The victim keeps everything in front of the bite; the rest is on the floor.
+  assert.deepEqual(versus.players[1].snake, [{ x: 6, y: 2 }, { x: 6, y: 3 }, { x: 6, y: 4 }])
+  assert.deepEqual(versus.scraps, [{ x: 6, y: 6 }])
+  // And biting is worth something, or nobody would risk it.
+  assert.equal(versus.players[0].score, 1)
+})
+
+test("a bite that leaves nothing but a head has eaten it", () => {
+  const versus = arena()
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  // Its head will be at 6,4 and 6,5 will be the cell right behind it.
+  place(versus, 1, [[6, 5], [6, 6], [6, 7]], [0, -1])
+  versus.tick()
+
+  assert.equal(versus.players[1].alive, false)
+  assert.equal(versus.players[1].reason, "eaten")
+  assert.equal(versus.phase, PHASE_ROUND_OVER)
+  assert.equal(versus.roundWinner, 0)
+})
+
+test("what is bitten off can be eaten, and grows whoever eats it", () => {
+  const versus = arena()
+  versus.scraps = [{ x: 6, y: 5 }]
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  versus.tick()
+
+  assert.equal(versus.scraps.length, 0)
+  assert.equal(versus.players[0].snake.length, 4)
+  assert.equal(versus.players[0].score, 1)
+})
+
+test("an apple never lands on something bitten off", () => {
+  const versus = arena()
+  versus.scraps = [{ x: 4, y: 4 }]
+  for (let attempt = 0; attempt < 30; ++attempt) {
+    versus.random = () => attempt / 30
+    versus.spawnFood()
+    assert.notDeepEqual(versus.food, { x: 4, y: 4 })
+  }
 })
 
 test("two heads into the same cell take each other with them", () => {
@@ -232,17 +273,23 @@ test("moving into a tail cell is legal when that tail moves away the same tick",
   assert.deepEqual(versus.players[0].snake[0], { x: 6, y: 5 })
 })
 
-test("a tail that is growing does not move away, and is fatal", () => {
+test("a tail that is growing does not move away, so it is there to be bitten", () => {
   const versus = arena()
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
   place(versus, 1, [[6, 3], [6, 4], [6, 5]], [0, -1])
   // The apple is where the other snake is about to put its head, so its tail
-  // stays exactly where it is.
+  // stays exactly where it is — and gets bitten off.
   versus.food = { x: 6, y: 2 }
   versus.tick()
 
-  assert.equal(versus.players[0].reason, "rival")
-  assert.equal(versus.players[1].score, 1)
+  assert.equal(versus.players[1].score, 1, "it still got the apple")
+  assert.equal(versus.players[0].alive, true)
+  // Bitten at its very last cell: one segment gone, nothing behind it to drop,
+  // and the growth it had just earned cancelled out.
+  assert.equal(versus.players[1].alive, true)
+  assert.deepEqual(versus.players[1].snake, [{ x: 6, y: 2 }, { x: 6, y: 3 }, { x: 6, y: 4 }])
+  assert.equal(versus.scraps.length, 0)
+  assert.equal(versus.players[0].score, 1, "a nip off the tail still counts")
 })
 
 // --- the apple ---------------------------------------------------------------
@@ -313,8 +360,10 @@ test("a dead player cannot steer, and neither seat can steer the other", () => {
 
 test("the round over screen passes and the next round starts fresh", () => {
   const versus = arena()
+  // A wall ends it: the first snake runs straight into one.
+  versus.obstacles = [{ x: 6, y: 5 }]
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
-  place(versus, 1, [[6, 4], [6, 5], [6, 6]], [0, -1])
+  place(versus, 1, [[20, 12], [21, 12], [22, 12]], [-1, 0])
   versus.tick()
   assert.equal(versus.phase, PHASE_ROUND_OVER)
   assert.equal(versus.round, 1)
@@ -332,8 +381,9 @@ test("the round over screen passes and the next round starts fresh", () => {
 test("the match ends when someone has taken enough rounds", () => {
   const versus = arena({ winsNeeded: 2 })
   versus.players[1].wins = 1
+  versus.obstacles = [{ x: 6, y: 5 }]
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
-  place(versus, 1, [[6, 4], [6, 5], [6, 6]], [0, -1])
+  place(versus, 1, [[20, 12], [21, 12], [22, 12]], [-1, 0])
   versus.tick()
   assert.equal(versus.players[1].wins, 2)
 

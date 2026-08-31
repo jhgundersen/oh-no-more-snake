@@ -101,10 +101,17 @@ Eater, Perfect Timing and Dance Floor are taken on trust. A reported beat can
 only ever open a window on the lane of the seat that sent it, which is the most
 it could be trusted with. Party Mode's other scoring needs no music at all.
 
-**Duel** — one board, one apple, and a round is won by outliving the other.
-Both snakes into the same cell nose first is nobody's round, unless one of them
-had eaten more that round, in which case it is theirs. Every apple eaten speeds
-the board up for both of them.
+**Duel** — one board, one apple, and a round is won by being the last one on it.
+
+Running into somebody is not fatal any more: it is a **bite**, the same one a
+snake takes out of a boss. Everything behind the bite comes off and lies there
+for anybody to eat, and reaching far enough forward to leave a rival with
+nothing but a head eats it outright — which is the rule that finishes a boss,
+and the only reason chasing anybody is worth the risk. Walls and your own body
+are still fatal, and two snakes into the same cell nose first still takes them
+both; if that leaves nobody, the round goes to whoever ate more.
+
+Every apple eaten speeds the board up for all of them.
 
 Either way the match runs to however many rounds the lobby was set to, and ends
 on a podium: the winner up on the tallest box wearing a crown, everybody else
