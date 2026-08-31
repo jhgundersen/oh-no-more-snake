@@ -1305,7 +1305,14 @@ export class Game {
     if (this.partyMode && isNeedlePassage(head, this.obstacles, this.wallsWrap) && this.bonusCooldownMs === 0)
       this.awardPartyBonus("THREAD THE NEEDLE", 2, head)
 
-    if (hitsDiscoBall) this.emit("discoBallEaten", head.x, head.y)
+    // Taken off the board by being taken, rather than by whatever it starts
+    // happening to be the thing that clears it. In a run that has always been
+    // Party Mode switching it off a moment later; a race has the party on
+    // already, and without this the same ball can be eaten over and over.
+    if (hitsDiscoBall) {
+      this.discoBall = { ...NOWHERE }
+      this.emit("discoBallEaten", head.x, head.y)
+    }
 
     if (eats) {
       const points = this.partyMode ? this.foodMultiplier : 1

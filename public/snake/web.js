@@ -712,7 +712,11 @@ const buttons = [
     name: () => "Charts, the highest scores", act: () => openCharts() },
   // The way in and, while a duel is up, the way out. One button, because the
   // controls row decides how much height is left for the board.
-  { id: "versus", letter: "2", rest: () => (twoPlayer() ? " Multiplayer: Leave" : " Multiplayer"),
+  // The only button with no bolded letter, because it has no letter to bold:
+  // it is reached with `2`, and "2 Multiplayer" reads like a typo rather than
+  // like a shortcut. M belongs to Mode, and of this word's own letters only
+  // u, y and e are free — none of them the first.
+  { id: "versus", rest: () => (twoPlayer() ? "Multiplayer: Leave" : "Multiplayer"),
     name: () => (twoPlayer() ? "Leave multiplayer" : "Multiplayer, here or online"),
     act: () => openVersus() }
 ]
@@ -1939,8 +1943,12 @@ function updateHud() {
 function updateButtons() {
   for (const button of buttons) {
     const node = el(button.id)
-    // The shortcut is shown by bolding the letter, not by trailing "(x)".
-    node.innerHTML = `<b>${button.letter}</b>${escapeHtml(button.rest())}`
+    // The shortcut is shown by bolding the letter, not by trailing "(x)" —
+    // and a button whose shortcut is not a letter shows nothing rather than
+    // bolding something that is not in the word.
+    node.innerHTML = button.letter
+      ? `<b>${button.letter}</b>${escapeHtml(button.rest())}`
+      : escapeHtml(button.rest())
     node.setAttribute("aria-label", button.name())
     node.style.fontFamily = button.family ? button.family() : ""
   }

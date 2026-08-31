@@ -202,7 +202,11 @@ These come from the Qt version and hold here too.
 - Never hardcode a dark-only surface. Every palette in `Palette.js` must stay
   readable, and the six theme names are the only colours the game may use.
 - Buttons keep hover and active feedback and accessible names. Shortcut letters
-  are shown by bolding the first letter, not with `(x)` text.
+  are shown by bolding the first letter, not with `(x)` text. Multiplayer is
+  the one button with nothing bolded: its shortcut is `2`, `m` belongs to Mode,
+  and of the word's own letters only `u`, `y` and `e` are free — none of them
+  the first. "2 Multiplayer" reads like a typo rather than like a shortcut, so
+  the button says the word and the key is documented instead.
 
 ## Multiplayer invariants
 
@@ -276,10 +280,14 @@ third mode should mean adding a model, not editing those two.
   measured server-side — only the browser playing the music hears them — so
   they are reported, and a reported beat may only ever open a window on the
   lane of the seat that sent it. Nothing else about Party Mode needs a beat.
-- **The disco ball stays on a race board.** `setPartyMode` would ordinarily
-  take it away, the party having started; here it is put back, because it is
-  the offer of the music rather than of the party, and the music is the one
-  part a room cannot switch on for anybody.
+- **The disco ball stays on a race board, and goes when it is taken.**
+  `setPartyMode` would ordinarily take it away, the party having started; here
+  it is put back, because it is the offer of the music rather than of the
+  party, and the music is the one part a room cannot switch on for anybody.
+  `Game.tick` clears it on being eaten rather than leaving that to whatever
+  happens next — in a run that was always Party Mode switching it off a moment
+  later, which a race has already done, so the same ball could be eaten over
+  and over.
 - **Both models are driven by one `step(ms)` and one `pace`.** The room and the
   browser call those and nothing else, which is what lets a race run its two
   lanes on two different clocks — a lane on 2.3 moves quicker than one on 2.1 —

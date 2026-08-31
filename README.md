@@ -40,7 +40,7 @@ the filesystem will not work.
 - `t` — cycle the theme
 - `v` — fullscreen
 - `c` — charts
-- `2` — two players; again to close the box, and while a duel is up, to leave it
+- `2` — multiplayer; again to close the box, and while a match is up, to leave it
 - `g` — jump to the next boss level. Local development only.
 
 Development also gets a **go to** box under the buttons and a `?level=` query
@@ -92,8 +92,8 @@ same, on whatever this browser is playing.
 
 The disco ball stays on the board rather than vanishing when the party starts,
 because here it is the offer of the *music* — the one part of a party a room
-cannot switch on for you. Eating one starts it. `p` and `n` work during a match
-too.
+cannot switch on for you. Eating one starts the music and takes the ball, and
+there is a fresh one on each new level. `p` and `n` work during a match too.
 
 Beats are the exception. Only the browser playing the music can hear one, so
 online it is reported to the room rather than measured there, which means Beat

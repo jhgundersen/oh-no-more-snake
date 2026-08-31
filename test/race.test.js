@@ -199,6 +199,22 @@ test("the disco ball stays on the board, because here it offers the music", () =
   }
 })
 
+test("eating one takes it off that board, and leaves the others alone", () => {
+  const race = arena()
+  const lane = race.players[0]
+  const ball = { ...lane.game.discoBall }
+  assert.ok(ball.x >= 0)
+
+  // Straight into it.
+  lane.game.snake = [{ x: ball.x - 1, y: ball.y }, { x: ball.x - 2, y: ball.y }, { x: ball.x - 3, y: ball.y }]
+  lane.game.direction = { x: 1, y: 0 }
+  lane.game.turnQueue = []
+  lane.game.tick()
+
+  assert.deepEqual(lane.game.discoBall, { x: -1, y: -1 })
+  assert.ok(race.players[1].game.discoBall.x >= 0, "the other lane still has its own")
+})
+
 test("eating one says so, and says which lane it was", () => {
   const race = arena()
   const seen = []

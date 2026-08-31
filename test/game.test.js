@@ -865,3 +865,18 @@ test("a cell off the board travels as nowhere and comes back as nowhere", () => 
   assert.deepEqual(copy.snakeEater, { x: -1, y: -1 })
   assert.deepEqual(copy.ball, { x: -1, y: -1 })
 })
+
+test("a disco ball is taken off the board by being taken", () => {
+  const game = fresh({ random: () => 0.5 })
+  game.discoBall = { x: game.snake[0].x + 1, y: game.snake[0].y }
+  let announced = 0
+  game.on("discoBallEaten", () => ++announced)
+
+  game.tick()
+  assert.equal(announced, 1)
+  assert.deepEqual(game.discoBall, { x: -1, y: -1 }, "it should not still be there to eat again")
+
+  // And it does not come back on its own.
+  game.tick()
+  assert.equal(announced, 1)
+})
