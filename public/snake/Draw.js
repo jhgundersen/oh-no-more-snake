@@ -1627,7 +1627,7 @@ export function drawPodium(ctx, view, width, height) {
 
   // The whole scene is sized off the shorter dimension, so it holds together
   // on one wide board and on four stacked ones.
-  // Room under the boxes for a name, a tally and the line about a rematch.
+  // Room under the boxes for a name, a tally and the line about the lobby.
   const floor = Math.min(height * 0.74, height - 66)
   const tallest = Math.min(height * 0.34, 108)
   const boxWidth = Math.min(width / (lanes.length + 1), 96)
@@ -1714,7 +1714,7 @@ export function drawPodium(ctx, view, width, height) {
     x += boxWidth + gap
   }
 
-  label(ctx, view.rematchNote || "Space for a rematch", width / 2, height - 14, 12,
+  label(ctx, view.rematchNote || "Space for the lobby", width / 2, height - 14, 12,
     rgba(colors.foreground, 0.7), { bold: false })
 }
 

@@ -139,6 +139,11 @@ export class Net {
       this.handlers.onChatLog?.(Array.isArray(message.messages) ? message.messages : [])
       return
     }
+    if (message.t === "closed") {
+      this.setStatus("closed")
+      this.handlers.onClosed?.(message.reason)
+      return
+    }
     if (message.t === "left") {
       this.setStatus("waiting")
       this.handlers.onLeft?.(message.seat)
@@ -198,10 +203,6 @@ export class Net {
 
   toLobby() {
     this.send({ t: "tolobby" })
-  }
-
-  rematch() {
-    this.send({ t: "rematch" })
   }
 
   close() {

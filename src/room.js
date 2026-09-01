@@ -45,6 +45,14 @@ const CHAT_HISTORY = 40
 // everybody as soon as it happens rather than waiting out a window.
 const BROADCAST_MS = 40
 
+// A room with a socket open stays in memory: the boards are not hibernated,
+// because a hibernated object has no clock to run one on. That makes an idle
+// room a running cost rather than a free one, so a room that is not playing
+// and has heard nothing for a quarter of an hour shuts itself. Anybody who
+// wanted it back opens the same link again.
+const IDLE_CLOSE_MS = 15 * 60 * 1000
+const IDLE_CHECK_MS = 60 * 1000
+
 const SEATS = MAX_SEATS
 // How many rounds a match can be. One is a single game; five is a long
 // evening. Anything else is not a number of rounds.
@@ -85,6 +93,8 @@ export class VersusRoom extends DurableObject {
     this.timer = null
     this.lastAt = 0
     this.broadcastAt = 0
+    this.busyAt = Date.now()
+    this.idleTimer = null
     // The last board actually sent. A board that has not changed is not news,
     // and a countdown or a round-over screen is several seconds of not news.
     this.lastState = ""
@@ -124,6 +134,9 @@ export class VersusRoom extends DurableObject {
       budget: 0,
       second: 0
     })
+
+    this.busyAt = Date.now()
+    this.watchIdle()
 
     server.addEventListener("message", event => this.onMessage(server, event))
     server.addEventListener("close", () => this.onGone(server))
@@ -262,7 +275,10 @@ export class VersusRoom extends DurableObject {
     if (!this.sockets.size) {
       this.match = null
       this.chat = []
+      this.lastState = ""
       this.stop()
+      if (this.idleTimer !== null) clearTimeout(this.idleTimer)
+      this.idleTimer = null
       return
     }
     this.schedule()
@@ -290,6 +306,7 @@ export class VersusRoom extends DurableObject {
       return
     }
     if (!message || typeof message !== "object") return
+    this.busyAt = Date.now()
     this.handle(info, message)
   }
 
@@ -388,20 +405,6 @@ export class VersusRoom extends DurableObject {
       return
     }
 
-    if (message.t === "rematch") {
-      if (!this.match || this.match.phase !== PHASE_MATCH_OVER) return
-      // Whoever turned up while the last match was running plays this one.
-      // Without this they would keep a seat they could not use until somebody
-      // took the room back to its lobby.
-      this.match.setPresent(this.presence())
-      this.match.startMatch()
-      this.applySeats()
-      this.lastAt = Date.now()
-      this.broadcastState()
-      this.schedule()
-      return
-    }
-
     if (message.t === "tolobby") {
       if (this.match && this.match.phase !== PHASE_MATCH_OVER) return
       this.toLobby()
@@ -455,6 +458,42 @@ export class VersusRoom extends DurableObject {
     this.timer = null
   }
 
+  // A minute is plenty often enough to notice a room nobody is in any more,
+  // and costs nothing next to the socket that is keeping it awake anyway.
+  watchIdle() {
+    if (this.idleTimer !== null) return
+    if (!this.sockets.size) return
+    this.idleTimer = setTimeout(() => this.checkIdle(), IDLE_CHECK_MS)
+  }
+
+  checkIdle() {
+    this.idleTimer = null
+    if (!this.sockets.size) return
+    const phase = this.match?.phase
+    const playing = phase && phase !== PHASE_LOBBY && phase !== PHASE_MATCH_OVER
+    if (!playing && Date.now() - this.busyAt >= IDLE_CLOSE_MS) {
+      this.closeAll()
+      return
+    }
+    this.watchIdle()
+  }
+
+  closeAll() {
+    this.broadcast({ t: "closed", reason: "idle" })
+    for (const socket of [...this.sockets.keys()]) {
+      this.sockets.delete(socket)
+      try {
+        socket.close(1000, "idle")
+      } catch {
+        // It was already gone, which is where this was heading.
+      }
+    }
+    this.match = null
+    this.chat = []
+    this.lastState = ""
+    this.stop()
+  }
+
   // The next wake-up is the next thing that has to happen, rather than a fixed
   // heartbeat: a lobby, or a finished match, has nothing to do and should cost
   // nothing to leave open.
@@ -475,6 +514,7 @@ export class VersusRoom extends DurableObject {
     // a hundred: two snakes teleporting across the board is worse than a hitch.
     const delta = Math.min(500, Math.max(0, now - this.lastAt))
     this.lastAt = now
+    this.busyAt = now
 
     this.match.step(delta)
 

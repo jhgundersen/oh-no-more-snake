@@ -1218,6 +1218,15 @@ function joinRoom(code) {
       chatLog.replaceChildren()
       for (const entry of messages) addChatLine(entry)
     },
+      onClosed: () => {
+        // A room shuts itself when it has been sitting doing nothing: it is
+        // held in memory the whole time it is open, so an abandoned one is a
+        // running cost rather than a free one.
+        lobbyNote = "the room closed after sitting idle — open the link again"
+        announce(lobbyNote)
+        renderLobby()
+        updateHud()
+      },
     onLeft: seat => {
       lobbyNote = `${versusLabel(seat)} left — waiting for somebody else`
       announce(lobbyNote)
@@ -1226,7 +1235,8 @@ function joinRoom(code) {
     onStatus: status => {
       if (status === "connecting") lobbyNote = "connecting…"
       else if (status === "failed") lobbyNote = "could not reach the room"
-      else if (status === "dropped") lobbyNote = "connection lost — rejoin from 2 Players"
+      else if (status === "closed") lobbyNote = "the room closed after sitting idle — open the link again"
+      else if (status === "dropped") lobbyNote = "connection lost — rejoin from Multiplayer"
       renderLobby()
       updateHud()
     }
@@ -1579,15 +1589,32 @@ function steerVersus(seat, dx, dy) {
   match.turn(seat, dx, dy)
 }
 
-// Space starts the next match, the same key that restarts a single-player run.
+// Space is the key that gets a single-player run going again, and it is the
+// key that gets a match going again — by way of the lobby, because after a
+// match people want to change a face or the game far more often than they want
+// the identical match a second time.
 function versusSpace() {
   if (inLobby) {
     pressReady()
     return
   }
   if (!match || match.phase !== PHASE_MATCH_OVER) return
-  if (online()) net?.rematch()
-  else match.startMatch()
+  backToLobby()
+}
+
+function backToLobby() {
+  if (online()) {
+    // The room takes everybody back together and clears the ready flags.
+    net?.toLobby()
+    return
+  }
+  match = null
+  inLobby = true
+  if (lobbyState) for (const player of lobbyState.players) player.ready = false
+  renderLobby()
+  placeChat()
+  resize()
+  updateHud()
 }
 
 function pressReady() {
@@ -1748,8 +1775,8 @@ function versusView() {
       ? versusSeat === null ? "watching" : "arrows or W A S D"
       : "P1 arrows   ·   P2 W A S D",
     rematchNote: isOnline && versusSeat === null
-      ? "waiting for a rematch"
-      : "Space for a rematch"
+      ? "waiting for the lobby"
+      : "Space for the lobby"
   }
 }
 

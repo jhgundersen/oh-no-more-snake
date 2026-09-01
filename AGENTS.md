@@ -401,6 +401,18 @@ third mode should mean adding a model, not editing those two.
   to send; it has rounds. Entering one pauses the single-player run rather than
   ending it, and the run's token keeps running — which is the same thing any
   other pause does.
+- **A room that is doing nothing shuts itself.** The sockets are accepted
+  rather than hibernated, because a hibernated object has no clock to run a
+  board on — which means an open socket keeps the object resident and billed
+  for as long as it is there. So a room that is not playing and has heard
+  nothing for a quarter of an hour closes, and says why. A match in progress is
+  never interrupted, and anything anybody says or does resets the clock.
+  Hibernating while in the lobby would be the next step and is the only way to
+  make a waiting room genuinely free.
+- **Space goes back to the lobby, not into the same match again.** After a
+  match people want a different face or a different game far more often than
+  they want a repeat, and the lobby is where both of those live. There is no
+  rematch message.
 - **A room stores nothing.** A match is worth exactly as long as its two
   players are connected. The Durable Object holds it in memory on purpose, and
   the sockets are accepted rather than hibernated because a hibernated object

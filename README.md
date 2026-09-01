@@ -128,8 +128,10 @@ with apples breaking a tie in length and nothing breaking a tie in both.
 
 Every apple eaten speeds the board up for all of them.
 
-Either way the match runs to however many rounds the lobby was set to, and ends
-on a podium: the winner up on the tallest box wearing a crown, everybody else
+Either way the match runs to however many rounds the lobby was set to. Space
+takes everybody back to the lobby afterwards rather than straight into the same
+match again, because by then somebody usually wants a different face or a
+different game. It ends on a podium: the winner up on the tallest box wearing a crown, everybody else
 on a smaller one looking about as pleased as you would expect. The line across
 the top is drawn from a pool, so it is rarely the same twice.
 
@@ -150,6 +152,11 @@ number pad (`8456`). The vi keys a run steers with are not among them, because
 opens it takes a free seat; anyone after that watches and can still talk. You
 take the seat the room gives you and with it that seat's name and face, and the
 room remembers both, so a rematch does not mean picking again.
+
+A room shuts itself after a quarter of an hour of sitting idle — not playing
+and nobody saying anything. It is held in memory for as long as a socket is
+open, so an abandoned one is a running cost rather than a free one. Opening the
+link again makes a new one.
 
 The chat moves out of the lobby and sits beside the board while a match is on:
 `Enter` or the speech bubble opens it, and it goes under the board rather than
