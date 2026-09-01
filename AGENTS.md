@@ -298,14 +298,14 @@ third mode should mean adding a model, not editing those two.
   field sends a message that comes back as a lobby, the field being typed in
   was replaced after every letter and the caret thrown out with it. The name is
   also kept locally at once and told to the room only once the typing stops.
-- **A duel is a boss fight between players, and has exactly two endings.** A
-  wall on the board, or being bitten down to a bare head. Nothing else. Running
-  into a rival — or into yourself — is a bite: what is behind it comes off as
-  scraps anybody can eat, and a snake left with nothing but a head has been
-  eaten, which is the same rule that finishes a boss. Bites are resolved after
-  everybody has moved, so one is decided against where the bodies ended up
-  rather than where they set off from, and two mouthfuls out of one snake on
-  one tick take the worse of them.
+- **A duel has one ending: a wall on the board.** Running into a rival — or
+  into yourself — is a bite and never a death: what is behind it comes off as
+  scraps anybody can eat, and a snake bitten down to a bare head keeps playing
+  and can eat its way back. A bite that killed was tried and taken out again,
+  because it had to be explained, and a rule that has to be explained does not
+  belong on a board. Bites are resolved after everybody has moved, so one is
+  decided against where the bodies ended up rather than where they set off
+  from, and two mouthfuls out of one snake on one tick take the worse of them.
 - **Nose to nose is stars, not an ending.** Both stay where they are and both
   see them, exactly as a snake and a boss do. Steering is allowed while they
   last and the queued turn is taken the moment they clear, which is the only
@@ -368,10 +368,12 @@ third mode should mean adding a model, not editing those two.
   the ten pixels a head actually is.
 - **A face is clipped to the head it is on.** A brow drawn to the corner of the
   block it was given lands outside a round head and reads as whiskers.
-- **A duel round is two minutes, and the longest snake takes it.** Both ways of
-  losing one need somebody to make a mistake, so without a clock two careful
-  players circle each other indefinitely. Length decides it, then apples, then
-  nobody — and the clock running out kills no one.
+- **A duel round is a minute, and the longest snake takes it.** With only one
+  way to lose, a round without a clock is two careful players circling each
+  other indefinitely — so the clock is what ends most of them, not a backstop.
+  Length decides it, then apples, then nobody, and running out kills no one.
+  The last five seconds are marked on the board: a round that simply stops is a
+  round nobody was racing.
 - **Rounds have to end.** In a duel, apples speed the board up for both players
   and every round starts quicker; in a race the pace follows whichever lane is
   further ahead. `STALEMATE_TICKS` is the backstop in both, for two players who

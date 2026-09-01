@@ -22,6 +22,7 @@ import {
 import { Net, newRoomCode, roomLink, validCode } from "./Net.js"
 import {
   HEADS,
+  FINAL_SECONDS_MS,
   MAX_SEATS,
   MIN_SEATS,
   PHASE_MATCH_OVER,
@@ -1758,6 +1759,7 @@ const pips = (wins, needed) => "●".repeat(wins) + "○".repeat(Math.max(0, nee
 
 function updateVersusHud() {
   const middle = el("vs-middle")
+  middle.classList.remove("urgent")
   if (inLobby) middle.textContent = online() ? "LOBBY" : "READY?"
   else if (!match) middle.textContent = "…"
   else if (match.phase === PHASE_MATCH_OVER) middle.textContent = "MATCH OVER"
@@ -1767,6 +1769,8 @@ function updateVersusHud() {
     // a deadline.
     const left = Math.max(0, Math.ceil((match.remainingMs || 0) / 1000))
     middle.textContent = `ROUND ${match.round}  ·  ${timeText(left)}`
+    middle.classList.toggle("urgent",
+      match.phase === PHASE_PLAYING && match.remainingMs <= FINAL_SECONDS_MS)
   }
 
   const players = match ? match.seated : []

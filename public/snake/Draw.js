@@ -10,6 +10,7 @@
 import { COLUMNS, ROWS, bossNumber, levelName } from "./Game.js"
 import { HEADS } from "./Versus.js"
 import { setBossLevel, setStartLevel } from "./Race.js"
+import { FINAL_SECONDS_MS } from "./Versus.js"
 import { spectrumRange } from "./Audio.js"
 import { partyComboName } from "./Messages.js"
 import { bossFor, drawPortrait } from "./Bosses.js"
@@ -1197,7 +1198,6 @@ export function drawSplash(ctx, view) {
 const CRASH_REASONS = {
   wall: "into the wall",
   self: "into itself",
-  eaten: "eaten alive",
   "head-on": "nose to nose",
   stalemate: "neither of them blinked"
 }
@@ -1411,6 +1411,32 @@ export function drawVersus(ctx, view) {
       ctx.stroke()
     }
   })
+
+  // The last five seconds, said loudly. A round that simply stops is a round
+  // nobody was racing.
+  const urgent = versus.phase === "playing" && versus.remainingMs <= FINAL_SECONDS_MS
+  if (urgent) {
+    const left = Math.max(1, Math.ceil(versus.remainingMs / 1000))
+    // One beat a second: bright on the tick, faded by the end of it.
+    const within = 1 - (versus.remainingMs % 1000) / 1000
+    const pulse = Math.pow(1 - within, 2)
+
+    ctx.globalAlpha = 0.10 + pulse * 0.16
+    ctx.fillStyle = "#ff4d4d"
+    ctx.fillRect(0, 0, width, height)
+    ctx.globalAlpha = 1
+
+    roundRect(ctx, 2, 2, width - 4, height - 4, 5)
+    ctx.lineWidth = 2 + pulse * 5
+    ctx.strokeStyle = rgba(parseHex("#ff4d4d"), 0.5 + pulse * 0.5)
+    ctx.stroke()
+
+    // The number itself, arriving big and shrinking away.
+    ctx.globalAlpha = 0.2 + pulse * 0.45
+    label(ctx, String(left), width / 2, height / 2 + cell * (2.4 + pulse * 0.6),
+      Math.min(width, height) * (0.42 + pulse * 0.12), "#ff4d4d")
+    ctx.globalAlpha = 1
+  }
 
   if (versus.food.x >= 0) {
     const food = view.foods[view.foodStyleIndex % view.foods.length]

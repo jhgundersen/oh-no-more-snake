@@ -367,6 +367,23 @@
 			color: var(--muted);
 		}
 
+		/* The last five seconds of a duel round. */
+		.vs-middle.urgent {
+			color: #ff4d4d;
+			animation: tick 1s steps(2, end) infinite;
+		}
+
+		@keyframes tick {
+			from { opacity: 1; }
+			to { opacity: 0.45; }
+		}
+
+		@media (prefers-reduced-motion: reduce) {
+			.vs-middle.urgent {
+				animation: none;
+			}
+		}
+
 		.vs-middle {
 			font-size: 12px;
 			font-weight: 700;

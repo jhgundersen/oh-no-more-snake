@@ -103,15 +103,15 @@ it could be trusted with. Party Mode's other scoring needs no music at all.
 
 **Duel** — one board, one apple, and a round is won by being the last one on it.
 
-There are exactly two ways to lose one: **run into a wall**, or **be bitten
-down to nothing but a head**. Nothing else ends you.
+There is exactly one way to lose one: **run into a wall**. Nothing else ends
+you.
 
 Running into somebody is a **bite**, the same one a snake takes out of a boss:
-everything behind it comes off and lies there for anybody to eat, and reaching
-far enough forward to leave a rival with nothing but a head eats it outright.
-That is the rule that finishes a boss, and the only reason chasing anybody is
-worth the risk. Running into *yourself* is the same bite with the same
-consequence — your own tail comes off.
+everything behind it comes off and lies there for anybody to eat. It never
+kills — taking somebody's body off them is worth doing and plain to watch, and
+taking their life with it was a rule that had to be explained. Running into
+*yourself* is the same bite with the same consequence: your own tail comes off,
+and you can eat your way back.
 
 Nose to nose is neither: both of them see stars for a moment and stay exactly
 where they are, which is what a headbutt costs a snake and a boss. You can
@@ -121,11 +121,10 @@ A wall means a wall standing on the board. **Borders always wrap in
 multiplayer** — an edge that kills you is a third party with an opinion — so
 the Borders button belongs to a run and is locked while a match is on.
 
-**A round is two minutes.** Both ways of losing need somebody to make a
-mistake, so without a clock two careful players circle each other until one of
-them gets bored. When it runs out the longest snake takes the round — which is
-what all that eating was for — with apples breaking a tie in length and nothing
-breaking a tie in both.
+**A round is a minute**, and the last five seconds of it say so: the board
+turns red, and the count comes up behind the snakes. When the clock runs out
+the longest snake takes the round — which is what all that eating was for —
+with apples breaking a tie in length and nothing breaking a tie in both.
 
 Every apple eaten speeds the board up for all of them.
 

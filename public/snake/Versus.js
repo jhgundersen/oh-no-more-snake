@@ -50,15 +50,15 @@ const FASTEST_INTERVAL = 70
 // them need somebody to make a mistake, so without a clock two careful players
 // circle each other until one of them gets bored. When it runs out the longest
 // snake takes the round, which is what all that eating was for.
-export const ROUND_TIME_MS = 2 * 60 * 1000
+export const ROUND_TIME_MS = 60 * 1000
+
+// The last of it, marked on the board. Long enough to change what somebody is
+// doing, short enough that it is an event rather than a mood.
+export const FINAL_SECONDS_MS = 5 * 1000
 
 // How long two snakes see stars after meeting nose to nose. The same 1100 ms
 // a boss headbutt costs, because it is the same collision.
 const DIZZY_MS = 1100
-
-// Bitten below this there is nothing left to be: a snake that is only a head
-// has been eaten. It is what finishes a boss, and it finishes a duel the same.
-const MINIMUM_LENGTH = 2
 
 // Neither of them. Used for a round where both crashed on the same tick with
 // the same number of apples, and for the match if that somehow decides it.
@@ -547,11 +547,15 @@ export class Versus {
     // Nose to nose. Nobody wins that and nobody loses it either: both of them
     // see stars, both stay where they are, and both can still be steered — a
     // queued turn is taken the moment the stars clear, which is how anybody
-    // gets out of one.
+    // gets out of one. Walking into the head of somebody who is already seeing
+    // stars counts too, or two snakes would quietly stand in the same cell.
     const stunned = new Set()
     for (const player of moving) {
-      for (const other of moving) {
-        if (other !== player && same(heads.get(player), heads.get(other))) stunned.add(player)
+      const head = heads.get(player)
+      for (const other of onBoard) {
+        if (other === player) continue
+        const theirs = heads.has(other) ? heads.get(other) : other.snake[0]
+        if (theirs && same(head, theirs)) stunned.add(player)
       }
     }
     for (const player of stunned) {
@@ -614,9 +618,10 @@ export class Versus {
 
   // A snake whose head has landed in somebody else's body has bitten it, the
   // way a snake bites a boss: everything behind the bite comes off and lies
-  // there to be eaten. Reaching far enough forward to leave a rival with
-  // nothing but a head eats it outright — the same rule that finishes a boss,
-  // and the only reason chasing anybody is worth the risk.
+  // there for anybody to eat. It never kills. Taking somebody's body off them
+  // is worth doing and plain to watch; taking their life with it was a rule
+  // that had to be explained, and a rule that has to be explained does not
+  // belong on a board.
   //
   // Resolved after everybody has moved, so a bite is decided against where the
   // bodies ended up rather than where they set off from.
@@ -649,13 +654,9 @@ export class Versus {
       ++biter.score
       ++biter.total
       this.emit("bitten", biter.seat, victim.seat, cut.length)
-
-      if (victim.snake.length < MINIMUM_LENGTH) {
-        victim.alive = false
-        victim.reason = "eaten"
-        victim.crashAt = victim.snake[0] ? { ...victim.snake[0] } : null
-        this.emit("eaten", victim.seat, biter.seat)
-      }
+      // And that is all a bite does. Taking somebody's body off them is worth
+      // doing and easy to see; taking their life with it was a rule people had
+      // to be told, which is a rule that does not belong on a board.
     }
   }
 

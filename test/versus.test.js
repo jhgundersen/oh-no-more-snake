@@ -223,17 +223,42 @@ test("running into the other snake bites it rather than ending you", () => {
   assert.equal(versus.players[0].score, 1)
 })
 
-test("a bite that leaves nothing but a head has eaten it", () => {
+test("a bite never kills, however little it leaves", () => {
   const versus = arena()
   place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
-  // Its head will be at 6,4 and 6,5 will be the cell right behind it.
+  // Its head will be at 6,4 and 6,5 the cell right behind it: everything but
+  // the head comes off.
   place(versus, 1, [[6, 5], [6, 6], [6, 7]], [0, -1])
   versus.tick()
 
-  assert.equal(versus.players[1].alive, false)
-  assert.equal(versus.players[1].reason, "eaten")
-  assert.equal(versus.phase, PHASE_ROUND_OVER)
-  assert.equal(versus.roundWinner, 0)
+  assert.equal(versus.players[1].alive, true)
+  assert.equal(versus.players[1].snake.length, 1, "a head, and nothing else")
+  assert.equal(versus.phase, PHASE_PLAYING, "and the round goes on")
+  assert.equal(versus.players[0].score, 1)
+})
+
+test("a snake down to a head can eat its way back", () => {
+  const versus = arena()
+  place(versus, 1, [[6, 5]], [0, -1])
+  versus.food = { x: 6, y: 4 }
+  versus.tick()
+
+  assert.equal(versus.players[1].snake.length, 2)
+  assert.equal(versus.players[1].alive, true)
+})
+
+test("only a wall ends a duel snake", () => {
+  const versus = arena()
+  // Into itself: a bite. Into a rival: a bite. Nose to nose: stars.
+  place(versus, 0, [[5, 5], [5, 4], [6, 4], [6, 5], [6, 6], [6, 7]], [1, 0])
+  versus.tick()
+  assert.equal(versus.players[0].alive, true)
+
+  versus.obstacles = [{ x: 8, y: 5 }]
+  place(versus, 0, [[7, 5], [6, 5], [5, 5]], [1, 0])
+  versus.tick()
+  assert.equal(versus.players[0].alive, false)
+  assert.equal(versus.players[0].reason, "wall")
 })
 
 test("what is bitten off can be eaten, and grows whoever eats it", () => {
