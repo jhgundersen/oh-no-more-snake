@@ -15,6 +15,7 @@ import {
   PHASE_PLAYING,
   PHASE_ROUND_OVER,
   ROUND_OVER_MS,
+  ROUND_TIME_MS,
   VERSUS_COLUMNS,
   VERSUS_ROWS,
   Versus,
@@ -464,14 +465,19 @@ test("the match ends when someone has taken enough rounds", () => {
   assert.equal(versus.phase, PHASE_MATCH_OVER)
 })
 
-test("a round nobody is trying to win is eventually a draw", () => {
+test("a round nobody is trying to win is ended by the clock, not left open", () => {
   const versus = arena()
-  // Two snakes going round the same empty board for ever.
-  for (let step = 0; step < 3000 && versus.phase === PHASE_PLAYING; ++step) versus.tick()
+  // Two snakes going round the same empty board and never meeting.
+  for (let step = 0; step < 400 && versus.phase === PHASE_PLAYING; ++step) {
+    versus.tick()
+    versus.advance(400)
+  }
 
   assert.equal(versus.phase, PHASE_ROUND_OVER)
+  // Nobody died of it: they are the same length, so nobody takes it either.
   assert.equal(versus.roundWinner, DRAW)
-  assert.equal(versus.players[0].reason, "stalemate")
+  assert.equal(versus.players[0].alive, true)
+  assert.equal(versus.players[1].alive, true)
 })
 
 // --- pace --------------------------------------------------------------------
@@ -769,4 +775,60 @@ test("presence can be changed between matches, so a late arrival plays the next 
   versus.startMatch()
   assert.equal(versus.seated.length, 4)
   for (const player of versus.players) assert.equal(player.snake.length, 3)
+})
+
+// --- the clock ----------------------------------------------------------------
+
+test("a round is two minutes, and the longest snake takes it when they run out", () => {
+  const versus = arena()
+  assert.equal(versus.remainingMs, ROUND_TIME_MS)
+
+  // One of them has been eating.
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  place(versus, 1, [[20, 9], [21, 9], [22, 9], [23, 9], [24, 9]], [-1, 0])
+
+  versus.advance(ROUND_TIME_MS)
+  assert.equal(versus.remainingMs, 0)
+  assert.equal(versus.phase, PHASE_ROUND_OVER)
+  assert.equal(versus.roundWinner, 1)
+  assert.equal(versus.players[1].wins, 1)
+  // Nobody died of the clock.
+  assert.equal(versus.players[0].alive, true)
+})
+
+test("apples break a tie in length, and nothing breaks a tie in both", () => {
+  const versus = arena()
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  place(versus, 1, [[20, 9], [21, 9], [22, 9]], [-1, 0])
+  versus.players[1].score = 3
+  versus.advance(ROUND_TIME_MS)
+  assert.equal(versus.roundWinner, 1)
+
+  const level = arena()
+  place(level, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  place(level, 1, [[20, 9], [21, 9], [22, 9]], [-1, 0])
+  level.advance(ROUND_TIME_MS)
+  assert.equal(level.roundWinner, DRAW)
+})
+
+test("the clock only runs while the board does", () => {
+  const versus = new Versus({ random: () => 0 })
+  versus.startMatch()
+  assert.equal(versus.phase, PHASE_COUNTDOWN)
+  versus.advance(COUNTDOWN_MS)
+  assert.equal(versus.remainingMs, ROUND_TIME_MS, "a countdown is not part of the round")
+
+  versus.advance(5000)
+  assert.equal(versus.remainingMs, ROUND_TIME_MS - 5000)
+})
+
+test("the clock starts again with each round", () => {
+  const versus = arena()
+  versus.advance(30000)
+  assert.ok(versus.remainingMs < ROUND_TIME_MS)
+  versus.obstacles = [{ x: 6, y: 5 }]
+  place(versus, 0, [[5, 5], [4, 5], [3, 5]], [1, 0])
+  versus.tick()
+  versus.advance(ROUND_OVER_MS)
+  assert.equal(versus.remainingMs, ROUND_TIME_MS)
 })

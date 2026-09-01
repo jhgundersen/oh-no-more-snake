@@ -1542,15 +1542,17 @@ export class Game {
   // --- serialisation ---
   //
   // The desktop version never needs this: there is one board and it is in the
-  // same process as the thing drawing it. A race is two boards run by a room
-  // and drawn by two browsers, so a whole game has to fit in a message and
-  // come out the other end as something `Draw.js` can paint without knowing it
-  // travelled. Every getter it reads is derived from the fields below, so
-  // restoring them restores the lot.
+  // same process as the thing drawing it. A race is up to four boards run by a
+  // room and drawn by four browsers, so a whole game has to fit in a message
+  // and come out the other end as something `Draw.js` can paint without
+  // knowing it travelled. Every getter it reads is derived from a field below,
+  // so restoring them restores the lot.
   //
-  // Cells go as one number each. They are most of a frame and there are two
-  // boards of them many times a second; a pair of coordinates each would
-  // double the message for nothing.
+  // Two economies, both of which matter at a dozen frames a second times four
+  // boards times four people. Cells go as one number each, because they are
+  // most of a frame. And a field sitting at the value a fresh board gives it
+  // is left out altogether: two thirds of a frame used to be the names of
+  // fields holding zero.
 
   cellIndex(cell) {
     if (!cell) return -1
@@ -1563,114 +1565,19 @@ export class Game {
   }
 
   snapshot() {
-    const cells = list => list.map(cell => this.cellIndex(cell))
-    return {
-      snake: cells(this.snake),
-      direction: [this.direction.x, this.direction.y],
-      turnQueue: this.turnQueue.map(turn => [turn.x, turn.y]),
-      food: this.cellIndex(this.food),
-      discoBall: this.cellIndex(this.discoBall),
-      snakeEater: this.cellIndex(this.snakeEater),
-      reverseVenom: this.cellIndex(this.reverseVenom),
-      frenzyPickup: this.cellIndex(this.frenzyPickup),
-      frenzyFoods: cells(this.frenzyFoods),
-      ball: this.cellIndex(this.ball),
-      ballDirection: [this.ballDirection.x, this.ballDirection.y],
-      ballSpin: Math.round(this.ballSpin * 100) / 100,
-      goal: this.cellIndex(this.goal),
-      boss: cells(this.boss),
-      husks: this.husks.map(husk => ({
-        cells: cells(husk.cells),
-        direction: [husk.direction.x, husk.direction.y],
-        pace: husk.pace
-      })),
-      bossPhase: this.bossPhase,
-      bossStartLength: this.bossStartLength,
-      bossPace: this.bossPace,
-      finishRemainingMs: Math.round(this.finishRemainingMs),
-      fatalityRemainingMs: Math.round(this.fatalityRemainingMs),
-      dizzyMs: Math.round(this.dizzyMs),
-      bossFleeTicks: this.bossFleeTicks,
-      finisherInputs: this.finisherInputs.slice(),
-      fatality: this.fatality,
-      score: this.score,
-      elapsedSeconds: this.elapsedSeconds,
-      foodStyleIndex: this.foodStyleIndex,
-      foodMultiplier: this.foodMultiplier,
-      comboRemainingMs: Math.round(this.comboRemainingMs),
-      pendingGrowth: this.pendingGrowth,
-      beatWindowMs: Math.round(this.beatWindowMs),
-      nearMissWindowMs: Math.round(this.nearMissWindowMs),
-      bonusCooldownMs: Math.round(this.bonusCooldownMs),
-      snakeEaterPhase: this.snakeEaterPhase,
-      snakeEaterRespawnTicks: this.snakeEaterRespawnTicks,
-      reverseVenomRemainingMs: Math.round(this.reverseVenomRemainingMs),
-      frenzyRemainingMs: Math.round(this.frenzyRemainingMs),
-      running: this.running,
-      gameOver: this.gameOver,
-      levelTransition: this.levelTransition,
-      completedLevel: this.completedLevel,
-      displayedLevel: this.displayedLevel,
-      endlessMode: this.endlessMode,
-      wallsWrap: this.wallsWrap,
-      discoBallEnabled: this.discoBallEnabled,
-      partyMode: this.partyMode
+    const out = {}
+    for (const [key, kind, fallback] of BOARD_FIELDS) {
+      const value = packField(this, key, kind)
+      if (!isDefault(value, fallback)) out[key] = value
     }
+    return out
   }
 
   applySnapshot(state) {
-    if (!state || !Array.isArray(state.snake)) return
-    const cells = list => list.map(index => this.cellFrom(index))
-    this.snake = cells(state.snake)
-    this.direction = point(state.direction[0], state.direction[1])
-    this.turnQueue = state.turnQueue.map(turn => point(turn[0], turn[1]))
-    this.food = this.cellFrom(state.food)
-    this.discoBall = this.cellFrom(state.discoBall)
-    this.snakeEater = this.cellFrom(state.snakeEater)
-    this.reverseVenom = this.cellFrom(state.reverseVenom)
-    this.frenzyPickup = this.cellFrom(state.frenzyPickup)
-    this.frenzyFoods = cells(state.frenzyFoods)
-    this.ball = this.cellFrom(state.ball)
-    this.ballDirection = point(state.ballDirection[0], state.ballDirection[1])
-    this.ballSpin = state.ballSpin
-    this.goal = this.cellFrom(state.goal)
-    this.boss = cells(state.boss)
-    this.husks = state.husks.map(husk => ({
-      cells: cells(husk.cells),
-      direction: point(husk.direction[0], husk.direction[1]),
-      pace: husk.pace
-    }))
-    this.bossPhase = state.bossPhase
-    this.bossStartLength = state.bossStartLength
-    this.bossPace = state.bossPace
-    this.finishRemainingMs = state.finishRemainingMs
-    this.fatalityRemainingMs = state.fatalityRemainingMs
-    this.dizzyMs = state.dizzyMs
-    this.bossFleeTicks = state.bossFleeTicks
-    this.finisherInputs = state.finisherInputs.slice()
-    this.fatality = state.fatality
-    this.score = state.score
-    this.elapsedSeconds = state.elapsedSeconds
-    this.foodStyleIndex = state.foodStyleIndex
-    this.foodMultiplier = state.foodMultiplier
-    this.comboRemainingMs = state.comboRemainingMs
-    this.pendingGrowth = state.pendingGrowth
-    this.beatWindowMs = state.beatWindowMs
-    this.nearMissWindowMs = state.nearMissWindowMs
-    this.bonusCooldownMs = state.bonusCooldownMs
-    this.snakeEaterPhase = state.snakeEaterPhase
-    this.snakeEaterRespawnTicks = state.snakeEaterRespawnTicks
-    this.reverseVenomRemainingMs = state.reverseVenomRemainingMs
-    this.frenzyRemainingMs = state.frenzyRemainingMs
-    this.running = state.running
-    this.gameOver = state.gameOver
-    this.levelTransition = state.levelTransition
-    this.completedLevel = state.completedLevel
-    this.displayedLevel = state.displayedLevel
-    this.endlessMode = state.endlessMode
-    this.wallsWrap = state.wallsWrap
-    this.discoBallEnabled = state.discoBallEnabled
-    this.partyMode = state.partyMode
+    if (!state || typeof state !== "object") return
+    for (const [key, kind, fallback] of BOARD_FIELDS) {
+      unpackField(this, key, kind, key in state ? state[key] : fallback)
+    }
   }
 
   // --- settings ---
@@ -1703,4 +1610,110 @@ export class Game {
       // A storage quota or a locked-down origin is not worth losing a run over.
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// What a board is, on the wire
+// ---------------------------------------------------------------------------
+
+// Every field a board carries, how it is packed, and the value a fresh board
+// gives it. Anything still at its default is left out of a snapshot, and put
+// back from this table on the way in — so the two halves cannot drift apart,
+// which they very much can when they are two hand-written lists.
+//
+//   cell     one point, as a single index, or -1 for nowhere
+//   cells    an array of points, as indices
+//   vector   a direction, as [x, y]
+//   vectors  an array of directions
+//   husks    the severed pieces of a boss
+//   value    a number, a string, a boolean or null
+const BOARD_FIELDS = [
+  ["snake", "cells", []],
+  ["direction", "vector", null],
+  ["turnQueue", "vectors", []],
+  ["food", "cell", -1],
+  ["discoBall", "cell", -1],
+  ["snakeEater", "cell", -1],
+  ["reverseVenom", "cell", -1],
+  ["frenzyPickup", "cell", -1],
+  ["frenzyFoods", "cells", []],
+  ["ball", "cell", -1],
+  ["ballDirection", "vector", null],
+  ["ballSpin", "value", 0],
+  ["goal", "cell", -1],
+  ["boss", "cells", []],
+  ["husks", "husks", []],
+  ["bossPhase", "value", "none"],
+  ["bossStartLength", "value", 0],
+  ["bossPace", "value", 0],
+  ["finishRemainingMs", "value", 0],
+  ["fatalityRemainingMs", "value", 0],
+  ["dizzyMs", "value", 0],
+  ["bossFleeTicks", "value", 0],
+  ["finisherInputs", "value", []],
+  ["fatality", "value", null],
+  ["score", "value", 0],
+  ["elapsedSeconds", "value", 0],
+  ["foodStyleIndex", "value", 0],
+  ["foodMultiplier", "value", 1],
+  ["comboRemainingMs", "value", 0],
+  ["pendingGrowth", "value", 0],
+  ["beatWindowMs", "value", 0],
+  ["nearMissWindowMs", "value", 0],
+  ["bonusCooldownMs", "value", 0],
+  ["snakeEaterPhase", "value", 0],
+  ["snakeEaterRespawnTicks", "value", 0],
+  ["reverseVenomRemainingMs", "value", 0],
+  ["frenzyRemainingMs", "value", 0],
+  ["running", "value", true],
+  ["gameOver", "value", false],
+  ["levelTransition", "value", false],
+  ["completedLevel", "value", 0],
+  ["displayedLevel", "value", 1],
+  ["endlessMode", "value", false],
+  ["wallsWrap", "value", true],
+  ["discoBallEnabled", "value", true],
+  ["partyMode", "value", false]
+]
+
+// A `null` default means "always send it": a direction is never at rest and
+// comparing one costs more than the four bytes it saves.
+function isDefault(value, fallback) {
+  if (fallback === null) return false
+  if (Array.isArray(fallback)) return Array.isArray(value) && value.length === 0
+  return value === fallback
+}
+
+const roundMs = value => Math.round(value)
+
+function packField(game, key, kind) {
+  const value = game[key]
+  if (kind === "cell") return game.cellIndex(value)
+  if (kind === "cells") return value.map(cell => game.cellIndex(cell))
+  if (kind === "vector") return [value.x, value.y]
+  if (kind === "vectors") return value.map(turn => [turn.x, turn.y])
+  if (kind === "husks") {
+    return value.map(husk => ({
+      cells: husk.cells.map(cell => game.cellIndex(cell)),
+      direction: [husk.direction.x, husk.direction.y],
+      pace: husk.pace
+    }))
+  }
+  // Milliseconds are carried as whole ones. Nothing reads a fraction of one,
+  // and a fraction of one is eight more characters every frame.
+  return typeof value === "number" && !Number.isInteger(value) ? roundMs(value) : value
+}
+
+function unpackField(game, key, kind, value) {
+  if (kind === "cell") game[key] = game.cellFrom(value)
+  else if (kind === "cells") game[key] = value.map(index => game.cellFrom(index))
+  else if (kind === "vector") game[key] = point(value[0], value[1])
+  else if (kind === "vectors") game[key] = value.map(turn => point(turn[0], turn[1]))
+  else if (kind === "husks") {
+    game[key] = value.map(husk => ({
+      cells: husk.cells.map(index => game.cellFrom(index)),
+      direction: point(husk.direction[0], husk.direction[1]),
+      pace: husk.pace
+    }))
+  } else game[key] = Array.isArray(value) ? value.slice() : value
 }

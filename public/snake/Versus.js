@@ -46,10 +46,11 @@ const SLOWEST_ROUND_INTERVAL = 90
 const APPLE_SPEEDUP = 4
 const FASTEST_INTERVAL = 70
 
-// Two players who never eat never speed each other up, and an online room
-// where nobody moves toward anything must not stay open for ever. Three
-// minutes of mutual politeness is a draw.
-const STALEMATE_TICKS = 1800
+// A round is two minutes. There are only two ways to lose a duel and both of
+// them need somebody to make a mistake, so without a clock two careful players
+// circle each other until one of them gets bored. When it runs out the longest
+// snake takes the round, which is what all that eating was for.
+export const ROUND_TIME_MS = 2 * 60 * 1000
 
 // How long two snakes see stars after meeting nose to nose. The same 1100 ms
 // a boss headbutt costs, because it is the same collision.
@@ -279,6 +280,7 @@ export class Versus {
     this.round = 0
     this.tickNumber = 0
     this.apples = 0
+    this.remainingMs = ROUND_TIME_MS
     this.roundWinner = null
     this.matchWinner = null
     // How much of a board step has gone by. It lives on the model so that the
@@ -379,6 +381,7 @@ export class Versus {
   startRound() {
     ++this.round
     this.tickNumber = 0
+    this.remainingMs = ROUND_TIME_MS
     this.roundWinner = null
     this.obstacles = versusObstacles(this.round, this.columns, this.rows, this.seated.length)
     this.scraps = []
@@ -454,6 +457,13 @@ export class Versus {
     for (const player of this.players) {
       if (player.dizzyMs > 0) player.dizzyMs = Math.max(0, player.dizzyMs - ms)
     }
+    if (this.phase === PHASE_PLAYING) {
+      this.remainingMs = Math.max(0, this.remainingMs - ms)
+      if (this.remainingMs === 0) {
+        this.settleRound()
+        return
+      }
+    }
     if (this.phase !== PHASE_COUNTDOWN && this.phase !== PHASE_ROUND_OVER) return
     this.phaseMs = Math.max(0, this.phaseMs - ms)
     if (this.phaseMs > 0) return
@@ -503,15 +513,7 @@ export class Versus {
 
   tick() {
     if (this.phase !== PHASE_PLAYING) return
-    if (++this.tickNumber > STALEMATE_TICKS) {
-      for (const player of this.alive) {
-        player.alive = false
-        player.reason = "stalemate"
-      }
-      this.roundWinner = DRAW
-      this.settleRound()
-      return
-    }
+    ++this.tickNumber
 
     // A snake that died last tick is off the board. It is left where it fell
     // for the frame that killed it — the round has to show whose fault it was
@@ -662,13 +664,30 @@ export class Versus {
   // the apple pays off directly.
   settleRound() {
     const standing = this.alive
-    if (standing.length === 1) this.roundWinner = standing[0].seat
-    else if (this.roundWinner !== DRAW) {
-      const best = Math.max(...this.seated.map(player => player.score))
-      const leaders = this.seated.filter(player => player.score === best)
-      this.roundWinner = leaders.length === 1 ? leaders[0].seat : DRAW
+    if (standing.length === 1) {
+      this.roundWinner = standing[0].seat
+    } else if (standing.length > 1) {
+      // The clock ran out with several of them still going. The longest snake
+      // takes it, which is what all that eating was for; apples break a tie in
+      // length, and nothing breaks a tie in both.
+      this.roundWinner = this.bestOf(standing, player => player.snake.length)
+    } else if (this.roundWinner !== DRAW) {
+      // They all went together. Whoever had eaten the most takes it.
+      this.roundWinner = this.bestOf(this.seated, player => player.score)
     }
     this.endRound()
+  }
+
+  // The one out in front by a measure, or a draw if two of them are level.
+  bestOf(players, measure) {
+    let best = -Infinity
+    for (const player of players) best = Math.max(best, measure(player))
+    const leaders = players.filter(player => measure(player) === best)
+    if (leaders.length === 1) return leaders[0].seat
+    // Length settled nothing; apples might.
+    const most = Math.max(...leaders.map(player => player.score))
+    const eaters = leaders.filter(player => player.score === most)
+    return eaters.length === 1 ? eaters[0].seat : DRAW
   }
 
   endRound() {
@@ -732,6 +751,11 @@ export class Versus {
       phase: this.phase,
       phaseMs: Math.round(this.phaseMs),
       round: this.round,
+      // To the quarter second. The clock is read in whole seconds, and a
+      // number that changes every step is a board that never looks unchanged —
+      // which is how a duel talked its way past the "has anything happened?"
+      // check that keeps a race quiet.
+      remainingMs: Math.round(this.remainingMs / 250) * 250,
       tickNumber: this.tickNumber,
       obstacles: this.obstacles.map(cell => this.indexOf(cell)),
       scraps: this.scraps.map(cell => this.indexOf(cell)),
@@ -769,6 +793,7 @@ export class Versus {
     this.phase = state.phase
     this.phaseMs = state.phaseMs
     this.round = state.round
+    this.remainingMs = state.remainingMs ?? ROUND_TIME_MS
     this.tickNumber = state.tickNumber
     this.obstacles = state.obstacles.map(index => this.cellAt(index))
     this.scraps = (state.scraps || []).map(index => this.cellAt(index))

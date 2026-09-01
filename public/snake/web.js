@@ -1762,7 +1762,12 @@ function updateVersusHud() {
   else if (!match) middle.textContent = "…"
   else if (match.phase === PHASE_MATCH_OVER) middle.textContent = "MATCH OVER"
   else if (matchMode === "race") middle.textContent = `ROUND ${match.round} — TO ${levelName(setBossLevel(match.round))}`
-  else middle.textContent = `ROUND ${match.round}`
+  else {
+    // A duel has a clock, and a clock nobody can see is a surprise rather than
+    // a deadline.
+    const left = Math.max(0, Math.ceil((match.remainingMs || 0) / 1000))
+    middle.textContent = `ROUND ${match.round}  ·  ${timeText(left)}`
+  }
 
   const players = match ? match.seated : []
   const board = el("vs-players")

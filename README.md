@@ -121,6 +121,12 @@ A wall means a wall standing on the board. **Borders always wrap in
 multiplayer** — an edge that kills you is a third party with an opinion — so
 the Borders button belongs to a run and is locked while a match is on.
 
+**A round is two minutes.** Both ways of losing need somebody to make a
+mistake, so without a clock two careful players circle each other until one of
+them gets bored. When it runs out the longest snake takes the round — which is
+what all that eating was for — with apples breaking a tie in length and nothing
+breaking a tie in both.
+
 Every apple eaten speeds the board up for all of them.
 
 Either way the match runs to however many rounds the lobby was set to, and ends
@@ -151,8 +157,11 @@ The chat moves out of the lobby and sits beside the board while a match is on:
 beside it where there is no width for that.
 
 The room runs the game — it holds the board, decides who reached the apple, and
-sends both browsers the same picture to draw, which is why neither of them can
-disagree about it. A board step is 85–140 ms, comfortably longer than the trip
+sends every browser the same picture to draw, which is why none of them can
+disagree about it. A board goes out once per step and only when it has actually
+changed, and carries only the fields that differ from a fresh board: two thirds
+of a frame used to be the names of fields holding zero. Four players on four
+boards costs the room about 30 KB a second. A board step is 85–140 ms, comfortably longer than the trip
 to the room, so nothing is predicted locally and nothing has to be rolled back.
 
 Browser to browser was the other option and is not this one. WebRTC would still

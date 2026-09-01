@@ -1480,6 +1480,11 @@ function drawVersusOverlay(ctx, view, width, height) {
   } else if (versus.phase === "countdown") {
     title = `ROUND ${versus.round}`
     subtitle = view.hint || ""
+  } else if (versus.phase === "roundOver" && versus.remainingMs === 0 && versus.alive.length > 1) {
+    // The clock, rather than anybody's mistake.
+    const winner = versus.roundWinner
+    title = winner === -1 ? "NOBODY TAKES IT" : `ROUND TO ${versusName(winner, seat, view.names)}`
+    subtitle = winner === -1 ? "time, and nothing between them" : "time — longest snake takes it"
   } else if (versus.phase === "roundOver") {
     const winner = versus.roundWinner
     // "ROUND TO YOU" rather than "YOU WIN THE ROUND", because the same

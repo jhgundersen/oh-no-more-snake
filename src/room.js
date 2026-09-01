@@ -39,9 +39,11 @@ const MAX_CHAT = 200
 // enough that a room holds no more of anyone's words than it needs to.
 const CHAT_HISTORY = 40
 
-// A board goes out at most this often. Twenty a second is finer than any board
-// step, and a race frame carries two whole games.
-const BROADCAST_MS = 50
+// The soonest a board may go out again. It is a floor on the rate rather than
+// the rate itself: what actually limits it is that an unchanged board is not
+// sent at all, and boards change once a step. Kept low so that a step reaches
+// everybody as soon as it happens rather than waiting out a window.
+const BROADCAST_MS = 40
 
 const SEATS = MAX_SEATS
 // How many rounds a match can be. One is a single game; five is a long
@@ -83,6 +85,9 @@ export class VersusRoom extends DurableObject {
     this.timer = null
     this.lastAt = 0
     this.broadcastAt = 0
+    // The last board actually sent. A board that has not changed is not news,
+    // and a countdown or a round-over screen is several seconds of not news.
+    this.lastState = ""
   }
 
   // A WebSocket upgrade is the one thing that still has to be a fetch. The
@@ -425,11 +430,22 @@ export class VersusRoom extends DurableObject {
     }
   }
 
-  broadcastState() {
-    this.broadcastAt = Date.now()
-    this.broadcast(this.match
+  // `force` for anything that has to reach somebody regardless — a new
+  // arrival, or a match starting — and only the clock sends without it.
+  broadcastState(force = true) {
+    const text = JSON.stringify(this.match
       ? { t: "state", mode: this.mode, state: this.match.snapshot() }
       : { t: "state", mode: this.mode, state: null })
+    if (!force && text === this.lastState) return
+    this.lastState = text
+    this.broadcastAt = Date.now()
+    for (const socket of this.sockets.keys()) {
+      try {
+        socket.send(text)
+      } catch {
+        // The close handler is about to say the same thing more usefully.
+      }
+    }
   }
 
   // --- the clock ---
@@ -465,7 +481,7 @@ export class VersusRoom extends DurableObject {
     // A race is two whole games and its frames are bigger, so the board is
     // sent on its own cadence rather than once per step. Twenty a second is
     // finer than any board step it could be carrying.
-    if (now - this.broadcastAt >= BROADCAST_MS) this.broadcastState()
+    if (now - this.broadcastAt >= BROADCAST_MS) this.broadcastState(false)
     this.schedule()
   }
 }

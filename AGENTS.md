@@ -368,10 +368,25 @@ third mode should mean adding a model, not editing those two.
   the ten pixels a head actually is.
 - **A face is clipped to the head it is on.** A brow drawn to the corner of the
   block it was given lands outside a round head and reads as whiskers.
+- **A duel round is two minutes, and the longest snake takes it.** Both ways of
+  losing one need somebody to make a mistake, so without a clock two careful
+  players circle each other indefinitely. Length decides it, then apples, then
+  nobody — and the clock running out kills no one.
 - **Rounds have to end.** In a duel, apples speed the board up for both players
   and every round starts quicker; in a race the pace follows whichever lane is
   further ahead. `STALEMATE_TICKS` is the backstop in both, for two players who
   never eat, and without it an online room could stay open for ever.
+- **A frame carries what changed and nothing else.** `Game.snapshot` leaves out
+  every field still at the value a fresh board gives it, and `BOARD_FIELDS` is
+  the single table both halves read so they cannot drift apart. Cells go as one
+  number each. A board that has not changed is not sent at all, which is what
+  makes a countdown or a round-over screen free. Four boards for four people
+  went from about 320 KB a second to about 30 by doing those three things and
+  nothing cleverer — a delta encoding would be the next step and is not worth
+  its resync problems yet.
+- **A number that changes every step defeats that.** The duel's clock is sent
+  to the quarter second for exactly that reason: it is read in whole seconds,
+  and at full precision every board looks new and nothing is ever skipped.
 - **Nothing off the wire is trusted, and nothing typed is ever markup.** Names
   and chat are stripped of control characters and capped by the room, and put
   on screen with `textContent` and never `innerHTML`. Both halves stay: the
